@@ -12,7 +12,6 @@ import {
   StyleSheet,
   Alert,
   StatusBar,
-  ActivityIndicator,
   Animated,
   Platform,
 } from 'react-native';
@@ -36,7 +35,10 @@ import { MilestoneCelebration } from '../../components/MilestoneCelebration';
 import { useMilestones } from '../../hooks/useMilestones';
 import CameraModeToggle, { CameraMode } from '../../components/external-camera/CameraModeToggle';
 import ExternalCameraPanel from '../../components/external-camera/ExternalCameraPanel';
+import ExternalCameraView from '../../components/external-camera/ExternalCameraView';
 import { useExternalCameraDiagnostics } from '../../hooks/useExternalCameraDiagnostics';
+import { ExternalCamera } from '../../native/external-camera';
+import * as FileSystem from 'expo-file-system';
 
 type NavigationProp = NativeStackNavigationProp<MemberStackParamList>;
 
@@ -59,8 +61,14 @@ export default function MemberRecordScreen() {
   const insets = useSafeAreaInsets();
   const cameraRef = useRef<Camera>(null);
   const [cameraMode, setCameraMode] = useState<CameraMode>('native');
+  const [isModeTransitioning, setIsModeTransitioning] = useState(false);
+  const [nativeCameraMountKey, setNativeCameraMountKey] = useState(0);
   const externalCamera = useExternalCameraDiagnostics();
   const isExternalMode = cameraMode === 'external';
+  const isExternalReady = isExternalMode && externalCamera.isReady;
+  const isNativeCameraActive = cameraMode === 'native' && !isModeTransitioning;
+  const showExternalToggle = externalCamera.isSupported;
+  const isExternalModeRef = useRef(isExternalMode);
 
   // Permissions
   const { hasPermission: hasCameraPermission, requestPermission: requestCameraPermission } = useCameraPermission();
@@ -93,6 +101,27 @@ export default function MemberRecordScreen() {
   const progressAnim = useRef(new Animated.Value(0)).current;
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const encouragementRef = useRef<NodeJS.Timeout | null>(null);
+  const shouldResumeRecordingRef = useRef(false);
+
+  useEffect(() => {
+    isExternalModeRef.current = isExternalMode;
+  }, [isExternalMode]);
+
+  useEffect(() => {
+    if (!ExternalCamera.isSupported) {
+      return;
+    }
+
+    ExternalCamera.setExternalModeEnabled(false).catch((error) => {
+      console.warn('[ExternalCamera] Failed to reset external mode on mount', error);
+    });
+
+    return () => {
+      ExternalCamera.setExternalModeEnabled(false).catch((error) => {
+        console.warn('[ExternalCamera] Failed to disable external mode on unmount', error);
+      });
+    };
+  }, []);
 
   // Calculate progress
   const totalHours = totalHoursUploaded + (elapsedSeconds / 3600);
@@ -148,13 +177,6 @@ export default function MemberRecordScreen() {
     }
   }, [isRecording]);
 
-  useEffect(() => {
-    if (!externalCamera.isSupported || !isExternalMode) {
-      return;
-    }
-    externalCamera.refresh();
-  }, [externalCamera.isSupported, externalCamera.refresh, isExternalMode]);
-
   // Animate progress bar
   useEffect(() => {
     Animated.timing(progressAnim, {
@@ -164,12 +186,75 @@ export default function MemberRecordScreen() {
     }).start();
   }, [progress]);
 
+  useEffect(() => {
+    if (!ExternalCamera.isSupported) {
+      return;
+    }
+
+    const subscription = ExternalCamera.addRecordingStateListener((event) => {
+      if (!isExternalModeRef.current) {
+        return;
+      }
+
+      if (event.state === 'finalized') {
+        setIsRecording(false);
+        if (event.filePath) {
+          console.log('[MemberRecord] External video saved:', event.filePath);
+        }
+      }
+
+      if (event.state === 'error') {
+        console.error('[MemberRecord] External recording error:', event.message);
+        setIsRecording(false);
+      }
+    });
+
+    return () => {
+      subscription?.remove();
+    };
+  }, []);
+
+  const ensureExternalRecordingDirectory = useCallback(async (): Promise<string> => {
+    const baseDir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
+    if (!baseDir) {
+      throw new Error('No writable directory available');
+    }
+
+    const recordingsDir = `${baseDir}external-recordings/`;
+    const dirInfo = await FileSystem.getInfoAsync(recordingsDir);
+    if (!dirInfo.exists) {
+      await FileSystem.makeDirectoryAsync(recordingsDir, { intermediates: true });
+    }
+    return recordingsDir;
+  }, []);
+
+  const createExternalRecordingPath = useCallback(async (): Promise<string> => {
+    const recordingsDir = await ensureExternalRecordingDirectory();
+    const filename = `external-${Date.now()}.mp4`;
+    return `${recordingsDir}${filename}`;
+  }, [ensureExternalRecordingDirectory]);
+
   const startRecording = useCallback(async () => {
-    if (!cameraRef.current) return;
     try {
       resetMilestones();
       setElapsedSeconds(0);
       setIsRecording(true);
+
+      if (isExternalModeRef.current) {
+        if (!ExternalCamera.isSupported) {
+          throw new Error('External camera not supported');
+        }
+
+        const outputPath = await createExternalRecordingPath();
+        await ExternalCamera.startRecording(outputPath, {
+          enableAudio: false,
+          quality: 'highest',
+        });
+        return;
+      }
+
+      if (!cameraRef.current) return;
+
       cameraRef.current.startRecording({
         onRecordingFinished: (video) => {
           console.log('[MemberRecord] Video saved:', video.path);
@@ -183,12 +268,16 @@ export default function MemberRecordScreen() {
     } catch (error) {
       console.error('[MemberRecord] Start error:', error);
     }
-  }, [resetMilestones]);
+  }, [createExternalRecordingPath, resetMilestones]);
 
   const stopRecording = async (navigateToComplete: boolean = true) => {
-    if (!cameraRef.current || !isRecording) return;
     try {
-      await cameraRef.current.stopRecording();
+      if (isExternalModeRef.current) {
+        await ExternalCamera.stopRecording();
+      } else {
+        if (!cameraRef.current || !isRecording) return;
+        await cameraRef.current.stopRecording();
+      }
       setIsRecording(false);
       if (timerRef.current) clearInterval(timerRef.current);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -208,7 +297,10 @@ export default function MemberRecordScreen() {
 
   // Handle record button press
   const handleRecordPress = () => {
-    if (isExternalMode) {
+    if (isModeTransitioning) {
+      return;
+    }
+    if (isExternalMode && !isExternalReady) {
       Alert.alert(
         'External Camera',
         'Connect an external camera and complete the checks to start recording.'
@@ -246,25 +338,65 @@ export default function MemberRecordScreen() {
   };
 
   const handleCameraModeChange = async (mode: CameraMode) => {
-    if (mode === cameraMode) {
+    if (mode === cameraMode || isModeTransitioning) {
       return;
     }
-    if (isRecording) {
+
+    setIsModeTransitioning(true);
+    const wasRecording = isRecording;
+    if (wasRecording) {
       await stopRecording(false);
+      shouldResumeRecordingRef.current = true;
     }
-    setCameraMode(mode);
+
+    try {
+      if (mode === 'external') {
+        setCameraMode(mode);
+        if (ExternalCamera.isSupported) {
+          await ExternalCamera.setExternalModeEnabled(true);
+        }
+      } else {
+        setNativeCameraMountKey((currentKey) => currentKey + 1);
+        setCameraMode(mode);
+        if (ExternalCamera.isSupported) {
+          await ExternalCamera.setExternalModeEnabled(false);
+        }
+      }
+    } catch (error) {
+      console.warn('[ExternalCamera] Mode switch failed', error);
+    } finally {
+      externalCamera.refresh().catch((error) => {
+        console.warn('[ExternalCamera] Refresh after mode switch failed', error);
+      });
+      setIsModeTransitioning(false);
+    }
   };
+
+  useEffect(() => {
+    if (!shouldResumeRecordingRef.current) {
+      return;
+    }
+
+    if (isModeTransitioning) {
+      return;
+    }
+
+    if (cameraMode === 'external' && !isExternalReady) {
+      return;
+    }
+
+    shouldResumeRecordingRef.current = false;
+    startRecording();
+  }, [cameraMode, isExternalReady, isModeTransitioning, startRecording]);
 
   // Get status message
   const getStatusMessage = (): string => {
+    if (isModeTransitioning) {
+      return 'Switching camera...';
+    }
+
     if (isExternalMode) {
-      if (externalCamera.connectionStatus === 'disconnected') {
-        return 'Connect external camera to continue';
-      }
-      if (externalCamera.connectionStatus === 'unknown') {
-        return 'Checking external camera...';
-      }
-      return 'External camera ready';
+      return externalCamera.statusMessage;
     }
 
     if (isRecording) {
@@ -340,22 +472,38 @@ export default function MemberRecordScreen() {
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
 
       {/* Full-screen camera */}
-      {isExternalMode ? (
-        <ExternalCameraPanel
-          cameraPermissionStatus={cameraPermissionStatus}
-          connectionStatus={externalCamera.connectionStatus}
-          onOpenSettings={externalCamera.openSettings}
-          style={{
-            paddingTop: insets.top + 120,
-            paddingBottom: insets.bottom + 160,
-          }}
-        />
+      {isExternalMode && showExternalToggle ? (
+        <View style={StyleSheet.absoluteFill}>
+          <ExternalCameraPanel
+            cameraPermissionStatus={cameraPermissionStatus}
+            connectionStatus={externalCamera.connectionStatus}
+            supportState={externalCamera.supportState}
+            sessionState={externalCamera.sessionState}
+            statusMessage={externalCamera.statusMessage}
+            usbDeviceDetected={externalCamera.attachedUsbVideoDeviceCount > 0}
+            simulationControls={externalCamera.simulationControls}
+            onOpenSettings={externalCamera.openSettings}
+            preview={
+              !externalCamera.isSimulated ? (
+                <ExternalCameraView
+                  style={StyleSheet.absoluteFill}
+                />
+              ) : undefined
+            }
+            showPreviewPlaceholder={!isExternalReady}
+            style={{
+              paddingTop: insets.top + 120,
+              paddingBottom: insets.bottom + 160,
+            }}
+          />
+        </View>
       ) : (
         <Camera
+          key={`member-native-camera-${nativeCameraMountKey}`}
           ref={cameraRef}
           style={StyleSheet.absoluteFill}
           device={device}
-          isActive={true}
+          isActive={isNativeCameraActive}
           video={true}
           audio={true}
           zoom={0.5}
@@ -401,11 +549,13 @@ export default function MemberRecordScreen() {
             </Animated.View>
           )}
         </HeaderPill>
-        {externalCamera.isSupported && (
+        {showExternalToggle && (
           <View style={styles.modeToggleContainer}>
             <CameraModeToggle
               value={cameraMode}
               onChange={handleCameraModeChange}
+              externalDisabled={!externalCamera.canSwitchToExternal}
+              disabled={isModeTransitioning}
             />
           </View>
         )}
@@ -439,9 +589,12 @@ export default function MemberRecordScreen() {
           onPress={handleRecordPress}
           style={[
             styles.recordButtonOuter,
-            isExternalMode && styles.recordButtonDisabled,
+            (isExternalMode && !isExternalReady) || isModeTransitioning
+              ? styles.recordButtonDisabled
+              : null,
           ]}
           activeOpacity={0.8}
+          testID="record-button"
         >
           <View
             style={[
@@ -459,7 +612,7 @@ export default function MemberRecordScreen() {
 
         {/* Status text */}
         <View style={styles.statusContainer}>
-          <Text style={styles.statusText}>
+          <Text style={styles.statusText} testID="recording-status-text">
             {getStatusMessage()}
           </Text>
         </View>

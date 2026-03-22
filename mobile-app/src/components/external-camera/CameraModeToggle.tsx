@@ -7,14 +7,19 @@ type CameraModeToggleProps = {
   value: CameraMode;
   onChange: (value: CameraMode) => void;
   externalDisabled?: boolean;
+  disabled?: boolean;
 };
 
 export default function CameraModeToggle({
   value,
   onChange,
   externalDisabled = false,
+  disabled = false,
 }: CameraModeToggleProps) {
   const handleChange = (mode: CameraMode) => {
+    if (disabled) {
+      return;
+    }
     if (mode === 'external' && externalDisabled) {
       return;
     }
@@ -24,9 +29,15 @@ export default function CameraModeToggle({
   return (
     <View style={styles.container}>
       <TouchableOpacity
-        style={[styles.option, value === 'native' && styles.optionActive]}
+        style={[
+          styles.option,
+          value === 'native' && styles.optionActive,
+          disabled && styles.optionDisabled,
+        ]}
         onPress={() => handleChange('native')}
         activeOpacity={0.8}
+        disabled={disabled}
+        testID="camera-mode-native"
       >
         <Text style={[styles.optionText, value === 'native' && styles.optionTextActive]}>
           Native
@@ -40,7 +51,8 @@ export default function CameraModeToggle({
         ]}
         onPress={() => handleChange('external')}
         activeOpacity={0.8}
-        disabled={externalDisabled}
+        disabled={disabled || externalDisabled}
+        testID="camera-mode-external"
       >
         <Text
           style={[

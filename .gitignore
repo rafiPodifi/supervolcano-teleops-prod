@@ -6,6 +6,8 @@ node_modules/
 out/
 dist/
 
+bug-reports/
+
 mobile-app/.idea
 
 # environment & secrets
