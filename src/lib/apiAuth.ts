@@ -19,9 +19,20 @@ export async function requireAdmin(req: NextRequest) {
   const normalized = authorization.toLowerCase();
 
   if (normalized.startsWith("bearer ")) {
-    const sharedToken = authorization.split(/\s+/)[1] ?? "";
-    if (matchesSharedSecret(sharedToken)) {
+    const token = authorization.split(/\s+/)[1] ?? "";
+    
+    // Check shared secret first
+    if (matchesSharedSecret(token)) {
       return true;
+    }
+    
+    // Try to verify as Firebase token
+    try {
+      const decoded = await adminAuth.verifyIdToken(token);
+      const role = decoded?.role;
+      return role === "admin" || role === "superadmin" || role === "partner_admin";
+    } catch {
+      // Not a valid Firebase token, continue
     }
   }
 
@@ -43,4 +54,3 @@ export async function requireAdmin(req: NextRequest) {
     return false;
   }
 }
-

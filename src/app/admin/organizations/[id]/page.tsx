@@ -2023,7 +2023,7 @@ function LocationsTab({
                   {availableLocations.map((location) => (
                     <button
                       key={location.id}
-                      onClick={() => handleAssignLocation(location.id)}
+                      onClick={() => handleAssignLocation((location as any).locationId || location.id)}
                       disabled={assigning}
                       className="w-full p-4 text-left bg-gray-50 dark:bg-[#1a1a1a] hover:bg-gray-100 dark:hover:bg-[#1f1f1f] rounded-lg transition-colors disabled:opacity-50"
                     >
