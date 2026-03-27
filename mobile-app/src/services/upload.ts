@@ -1,6 +1,8 @@
 import { storage } from '../config/firebase';
-import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
-import { FileSystem } from 'expo-file-system';
+import { ref, uploadString, getDownloadURL } from 'firebase/storage';
+import { File as ExpoFile } from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
+import { normalizeLocalFileUri } from '@/utils/local-file-uri';
 
 export interface UploadProgress {
   bytesTransferred: number;
@@ -52,36 +54,36 @@ export async function uploadVideoToFirebase(
   jobId: string,
   onProgress: (progress: UploadProgress) => void
 ): Promise<{ storageUrl: string; durationSeconds: number; fileSize: number }> {
+  const normalizedVideoUri = normalizeLocalFileUri(videoUri);
   console.log('═══════════════════════════════════════');
   console.log('📹 UPLOAD START');
   console.log('═══════════════════════════════════════');
-  console.log('Video URI:', videoUri);
+  console.log('Video URI:', normalizedVideoUri);
   console.log('Location ID:', locationId);
   console.log('Job ID:', jobId);
   
   try {
-    // Step 1: Read video file
-    console.log('\n📦 Step 1: Reading video file...');
-    console.log('Fetching from URI:', videoUri);
-    
-    const response = await fetch(videoUri);
-    console.log('Fetch response status:', response.status);
-    console.log('Fetch response ok:', response.ok);
-    
-    if (!response.ok) {
-      throw new Error(`Failed to read video file: ${response.status}`);
+    // Step 1: Read video file as base64 to avoid RN/Firebase blob mutation issues
+    console.log('\n📦 Step 1: Reading video file as base64...');
+    console.log('Reading from URI:', normalizedVideoUri);
+
+    const fileInfo = await FileSystem.getInfoAsync(normalizedVideoUri);
+    if (!fileInfo.exists) {
+      throw new Error(`Recording file not found at ${normalizedVideoUri}`);
     }
-    
-    const blob = await response.blob();
-    console.log('✅ Blob created');
-    console.log('Blob size:', blob.size, 'bytes');
-    console.log('Blob type:', blob.type);
-    
-    if (blob.size === 0) {
+    console.log('Source file exists:', fileInfo.exists);
+    console.log('Source file size:', fileInfo.size ?? 0, 'bytes');
+
+    const localFile = new ExpoFile(normalizedVideoUri);
+    const base64Data = await localFile.base64();
+    console.log('✅ File base64 loaded');
+    console.log('Base64 length:', base64Data.length, 'chars');
+
+    if (base64Data.length === 0) {
       throw new Error('Video file is empty (0 bytes)');
     }
-    
-    const fileSize = blob.size;
+
+    const fileSize = fileInfo.size ?? Math.floor((base64Data.length * 3) / 4);
     let durationSeconds = 0;
     
     // Step 2: Create storage reference
@@ -105,69 +107,42 @@ export async function uploadVideoToFirebase(
     
     // Step 3: Upload to Firebase Storage
     console.log('\n⬆️ Step 3: Uploading to Firebase Storage...');
-    console.log('Starting uploadBytesResumable...');
-    
-    const uploadTask = uploadBytesResumable(storageRef, blob, {
+    console.log('Starting uploadString...');
+    onProgress({
+      bytesTransferred: 0,
+      totalBytes: fileSize,
+      progress: 0,
+    });
+
+    await uploadString(storageRef, base64Data, 'base64', {
       contentType: 'video/mp4',
     });
-    
-    console.log('Upload task created');
-    
-    // Monitor upload progress
-    return new Promise((resolve, reject) => {
-      uploadTask.on(
-        'state_changed',
-        (snapshot) => {
-          const progress = {
-            bytesTransferred: snapshot.bytesTransferred,
-            totalBytes: snapshot.totalBytes,
-            progress: (snapshot.bytesTransferred / snapshot.totalBytes) * 100,
-          };
-          onProgress(progress);
-          console.log(`📊 Upload progress: ${progress.progress.toFixed(1)}%`);
-          console.log(`   Bytes: ${snapshot.bytesTransferred} / ${snapshot.totalBytes}`);
-          console.log(`   State: ${snapshot.state}`);
-        },
-        (error) => {
-          console.error('═══════════════════════════════════════');
-          console.error('❌ UPLOAD ERROR');
-          console.error('═══════════════════════════════════════');
-          console.error('Error code:', error.code);
-          console.error('Error message:', error.message);
-          console.error('Error name:', error.name);
-          console.error('Error serverResponse:', error.serverResponse);
-          console.error('Full error:', JSON.stringify(error, null, 2));
-          reject(error);
-        },
-        async () => {
-          console.log('✅ Upload to Storage complete!');
-          
-          try {
-            // Step 4: Get download URL
-            console.log('\n🔗 Step 4: Getting download URL...');
-            const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-            console.log('✅ Download URL obtained');
-            console.log('URL (first 100 chars):', downloadURL.substring(0, 100) + '...');
-            
-            console.log('═══════════════════════════════════════');
-            console.log('✅ UPLOAD COMPLETE SUCCESS');
-            console.log('═══════════════════════════════════════');
-            console.log('Storage URL:', downloadURL);
-            console.log('File size:', fileSize, 'bytes');
-            console.log('Duration:', durationSeconds, 'seconds');
-            
-            resolve({
-              storageUrl: downloadURL,
-              durationSeconds,
-              fileSize,
-            });
-          } catch (error) {
-            console.error('❌ Error getting download URL:', error);
-            reject(error);
-          }
-        }
-      );
+    console.log('✅ Upload to Storage complete!');
+
+    onProgress({
+      bytesTransferred: fileSize,
+      totalBytes: fileSize,
+      progress: 100,
     });
+
+    // Step 4: Get download URL
+    console.log('\n🔗 Step 4: Getting download URL...');
+    const downloadURL = await getDownloadURL(storageRef);
+    console.log('✅ Download URL obtained');
+    console.log('URL (first 100 chars):', downloadURL.substring(0, 100) + '...');
+
+    console.log('═══════════════════════════════════════');
+    console.log('✅ UPLOAD COMPLETE SUCCESS');
+    console.log('═══════════════════════════════════════');
+    console.log('Storage URL:', downloadURL);
+    console.log('File size:', fileSize, 'bytes');
+    console.log('Duration:', durationSeconds, 'seconds');
+
+    return {
+      storageUrl: downloadURL,
+      durationSeconds,
+      fileSize,
+    };
   } catch (error: any) {
     console.error('═══════════════════════════════════════');
     console.error('❌ UPLOAD FAILED');
@@ -192,4 +167,3 @@ export async function deleteLocalVideo(videoUri: string) {
     console.log('Note: Could not delete local video (may already be deleted)');
   }
 }
-

@@ -8,6 +8,18 @@ export type ExternalCameraSessionState =
   | 'closing'
   | 'error';
 
+export type ExternalCameraConnectionPhase =
+  | 'detected'
+  | 'awaiting_android_permission'
+  | 'android_permission_granted'
+  | 'uvc_connecting'
+  | 'uvc_connected'
+  | 'awaiting_preview_surface'
+  | 'preview_opening'
+  | 'ready'
+  | 'recording'
+  | 'error';
+
 export type ExternalCameraInfo = {
   id: string;
   facing: ExternalCameraFacing;
@@ -34,6 +46,8 @@ export type ExternalCameraStatus = {
   uvcCameraCount: number;
   activeCameraId?: string | null;
   backend?: 'camerax' | 'uvc' | null;
+  connectionPhase?: ExternalCameraConnectionPhase | null;
+  externalModeEnabled?: boolean;
   sessionState?: ExternalCameraSessionState | null;
   previewSurfaceAttached?: boolean;
 };
@@ -104,6 +118,8 @@ export const ExternalCamera = {
         uvcCameraCount: 0,
         activeCameraId: null,
         backend: null,
+        connectionPhase: null,
+        externalModeEnabled: false,
         sessionState: null,
         previewSurfaceAttached: false,
       };
@@ -137,6 +153,13 @@ export const ExternalCamera = {
       return;
     }
     await NativeExternalCameraModule.stopRecording();
+  },
+
+  async retryPreview(): Promise<void> {
+    if (!NativeExternalCameraModule) {
+      return;
+    }
+    await NativeExternalCameraModule.retryPreview();
   },
 
   addCameraAvailabilityListener(

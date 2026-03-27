@@ -26,11 +26,15 @@ type ExternalCameraPanelProps = {
   sessionState?: ExternalCameraSessionState | null;
   statusMessage: string;
   usbDeviceDetected: boolean;
+  hasLivePreview?: boolean;
+  recordingActive?: boolean;
   simulationControls?: ExternalCameraSimulationControls | null;
   onOpenSettings?: () => void;
+  onRetry?: () => void;
   style?: StyleProp<ViewStyle>;
   preview?: React.ReactNode;
   showPreviewPlaceholder?: boolean;
+  showRetryAction?: boolean;
 };
 
 type TestStatus = 'pass' | 'fail' | 'pending';
@@ -95,11 +99,15 @@ export default function ExternalCameraPanel({
   sessionState,
   statusMessage,
   usbDeviceDetected,
+  hasLivePreview = false,
+  recordingActive = false,
   simulationControls,
   onOpenSettings,
+  onRetry,
   style,
   preview,
   showPreviewPlaceholder = !preview,
+  showRetryAction = false,
 }: ExternalCameraPanelProps) {
   const permissionStatus: TestStatus =
     cameraPermissionStatus === 'granted'
@@ -119,9 +127,17 @@ export default function ExternalCameraPanel({
       ? 'Allow camera access in settings.'
       : undefined;
 
+  const hasActivePreview = hasLivePreview || recordingActive;
+
   const connectionTestStatus: TestStatus =
-    supportState === 'ready' && sessionState === 'ready'
+    hasActivePreview
       ? 'pass'
+      : sessionState === 'error'
+      ? 'fail'
+      : supportState === 'disconnected' ||
+        supportState === 'usb_attached_not_supported' ||
+        supportState === 'usb_host_unsupported'
+      ? 'fail'
       : supportState === 'ready' ||
         supportState === 'unknown' ||
         supportState === 'camera_permission_required' ||
@@ -133,6 +149,14 @@ export default function ExternalCameraPanel({
       : 'pending';
 
   const connectionLabel = (() => {
+    if (recordingActive) {
+      return 'Recording';
+    }
+
+    if (hasLivePreview) {
+      return 'Connected';
+    }
+
     switch (supportState) {
       case 'ready':
         switch (sessionState) {
@@ -166,6 +190,12 @@ export default function ExternalCameraPanel({
         return 'Not detected';
     }
   })();
+
+  const connectionHelperText = recordingActive
+    ? 'Recording from the external camera.'
+    : hasLivePreview
+    ? 'External camera preview is live.'
+    : statusMessage;
 
   const usbTestStatus: TestStatus = usbDeviceDetected ? 'pass' : 'fail';
   const usbLabel = usbDeviceDetected ? 'Detected' : 'Not detected';
@@ -238,7 +268,9 @@ export default function ExternalCameraPanel({
           title="External camera detected"
           status={connectionTestStatus}
           statusLabel={connectionLabel}
-          helperText={statusMessage}
+          helperText={connectionHelperText}
+          actionLabel={showRetryAction ? 'Retry' : undefined}
+          onAction={showRetryAction ? onRetry : undefined}
         />
       </View>
 

@@ -6,8 +6,8 @@
 
 import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
 import { initializeAuth, getAuth, type Auth } from 'firebase/auth';
-import { getFirestore, enableNetwork } from 'firebase/firestore';
-import { getStorage } from 'firebase/storage';
+import { getFirestore, enableNetwork, type Firestore } from 'firebase/firestore';
+import { getStorage, type FirebaseStorage } from 'firebase/storage';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 
@@ -71,7 +71,7 @@ try {
 
 // Initialize Firestore
 const databaseId = Constants.expoConfig?.extra?.firebaseDatabaseId || process.env.EXPO_PUBLIC_FIREBASE_DATABASE_ID || 'default';
-let firestore;
+let firestore: Firestore;
 try {
   firestore = getFirestore(app, databaseId);
   console.log('[Firebase] ✅ Firestore initialized');
@@ -92,7 +92,7 @@ try {
 }
 
 // Initialize Storage
-let storage;
+let storage: FirebaseStorage;
 try {
   storage = getStorage(app);
   console.log('[Firebase] ✅ Firebase Storage initialized');

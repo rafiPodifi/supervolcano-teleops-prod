@@ -7,6 +7,7 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import LocationsScreen from '../screens/LocationsScreen';
+import JobSelectScreen from '../screens/JobSelectScreen';
 import CameraScreen from '../screens/CameraScreen';
 
 const Stack = createNativeStackNavigator();
@@ -23,6 +24,10 @@ export default function CleanerNavigator() {
         name="Locations" 
         component={LocationsScreen}
       />
+      <Stack.Screen
+        name="JobSelect"
+        component={JobSelectScreen}
+      />
       <Stack.Screen 
         name="Camera" 
         component={CameraScreen}
@@ -30,4 +35,3 @@ export default function CleanerNavigator() {
     </Stack.Navigator>
   );
 }
-

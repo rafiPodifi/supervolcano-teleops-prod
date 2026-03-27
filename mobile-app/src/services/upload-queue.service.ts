@@ -7,6 +7,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import { VideoUploadService } from './video-upload.service';
+import { normalizeLocalFileUri } from '@/utils/local-file-uri';
 
 const QUEUE_STORAGE_KEY = '@upload_queue';
 const VIDEOS_DIR = `${FileSystem.documentDirectory}videos/`;
@@ -17,8 +18,12 @@ export interface QueuedVideo {
   id: string;
   localPath: string;
   locationId: string;
-  userId: string;
-  organizationId: string;
+  locationName: string;
+  jobId: string;
+  jobTitle: string;
+  segmentNumber: number;
+  startedAt: string;
+  endedAt: string;
   createdAt: string;
   retryCount: number;
   lastError?: string;
@@ -93,11 +98,18 @@ class UploadQueueServiceClass {
    */
   async addToQueue(
     tempVideoUri: string,
-    locationId: string,
-    userId: string,
-    organizationId: string
+    payload: {
+      locationId: string;
+      locationName: string;
+      jobId: string;
+      jobTitle: string;
+      segmentNumber: number;
+      startedAt: string;
+      endedAt: string;
+    }
   ): Promise<string> {
-    console.log('[UploadQueue] Adding video to queue:', tempVideoUri);
+    const normalizedTempVideoUri = normalizeLocalFileUri(tempVideoUri);
+    console.log('[UploadQueue] Adding video to queue:', normalizedTempVideoUri);
 
     // Generate unique ID
     const id = `vid_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -105,9 +117,16 @@ class UploadQueueServiceClass {
     const persistentPath = `${VIDEOS_DIR}${filename}`;
 
     try {
+      const sourceFileInfo = await FileSystem.getInfoAsync(normalizedTempVideoUri);
+      if (!sourceFileInfo.exists) {
+        throw new Error(
+          `Source recording file not found. raw=${tempVideoUri} normalized=${normalizedTempVideoUri}`
+        );
+      }
+
       // Move from temp cache to persistent storage
       await FileSystem.copyAsync({
-        from: tempVideoUri,
+        from: normalizedTempVideoUri,
         to: persistentPath,
       });
       console.log('[UploadQueue] Moved video to:', persistentPath);
@@ -122,9 +141,13 @@ class UploadQueueServiceClass {
       const queuedVideo: QueuedVideo = {
         id,
         localPath: persistentPath,
-        locationId,
-        userId,
-        organizationId,
+        locationId: payload.locationId,
+        locationName: payload.locationName,
+        jobId: payload.jobId,
+        jobTitle: payload.jobTitle,
+        segmentNumber: payload.segmentNumber,
+        startedAt: payload.startedAt,
+        endedAt: payload.endedAt,
         createdAt: new Date().toISOString(),
         retryCount: 0,
         status: 'pending',
@@ -137,7 +160,7 @@ class UploadQueueServiceClass {
 
       // Try to delete temp file (don't fail if can't)
       try {
-        await FileSystem.deleteAsync(tempVideoUri, { idempotent: true });
+        await FileSystem.deleteAsync(normalizedTempVideoUri, { idempotent: true });
       } catch (e) {
         console.log('[UploadQueue] Could not delete temp file:', e);
       }
@@ -214,9 +237,15 @@ class UploadQueueServiceClass {
       // Upload
       await VideoUploadService.uploadVideo(
         video.localPath,
-        video.locationId,
-        video.userId,
-        video.organizationId,
+        {
+          locationId: video.locationId,
+          locationName: video.locationName,
+          jobId: video.jobId,
+          jobTitle: video.jobTitle,
+          segmentNumber: video.segmentNumber,
+          startedAt: video.startedAt,
+          endedAt: video.endedAt,
+        },
         (progress) => {
           console.log(`[UploadQueue] ${video.id} progress: ${progress.progress}%`);
         }
@@ -375,4 +404,3 @@ class UploadQueueServiceClass {
 }
 
 export const UploadQueueService = new UploadQueueServiceClass();
-

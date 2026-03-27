@@ -38,7 +38,8 @@ import ExternalCameraPanel from '../../components/external-camera/ExternalCamera
 import ExternalCameraView from '../../components/external-camera/ExternalCameraView';
 import { useExternalCameraDiagnostics } from '../../hooks/useExternalCameraDiagnostics';
 import { ExternalCamera } from '../../native/external-camera';
-import * as FileSystem from 'expo-file-system';
+import { normalizeLocalFileUri } from '../../utils/local-file-uri';
+import * as FileSystem from 'expo-file-system/legacy';
 
 type NavigationProp = NativeStackNavigationProp<MemberStackParamList>;
 
@@ -66,7 +67,7 @@ export default function MemberRecordScreen() {
   const externalCamera = useExternalCameraDiagnostics();
   const isExternalMode = cameraMode === 'external';
   const isExternalReady = isExternalMode && externalCamera.isReady;
-  const isNativeCameraActive = cameraMode === 'native' && !isModeTransitioning;
+  const isNativeCameraActive = cameraMode === 'native';
   const showExternalToggle = externalCamera.isSupported;
   const isExternalModeRef = useRef(isExternalMode);
 
@@ -91,6 +92,8 @@ export default function MemberRecordScreen() {
   const [isRecording, setIsRecording] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [currentEncouragement, setCurrentEncouragement] = useState(ENCOURAGEMENTS[0]);
+  const hasLiveExternalPreview =
+    isExternalMode && (externalCamera.hasLivePreview || isRecording);
   
   // Milestone system
   const { checkMilestone, currentMilestone, dismissMilestone, resetMilestones } = useMilestones();
@@ -199,7 +202,10 @@ export default function MemberRecordScreen() {
       if (event.state === 'finalized') {
         setIsRecording(false);
         if (event.filePath) {
-          console.log('[MemberRecord] External video saved:', event.filePath);
+          console.log(
+            '[MemberRecord] External video saved:',
+            normalizeLocalFileUri(event.filePath)
+          );
         }
       }
 
@@ -248,7 +254,7 @@ export default function MemberRecordScreen() {
         const outputPath = await createExternalRecordingPath();
         await ExternalCamera.startRecording(outputPath, {
           enableAudio: false,
-          quality: 'highest',
+          quality: 'hd',
         });
         return;
       }
@@ -300,18 +306,18 @@ export default function MemberRecordScreen() {
     if (isModeTransitioning) {
       return;
     }
+    if (isRecording) {
+      stopRecording();
+      return;
+    }
     if (isExternalMode && !isExternalReady) {
       Alert.alert(
         'External Camera',
-        'Connect an external camera and complete the checks to start recording.'
+        externalCamera.statusMessage
       );
       return;
     }
-    if (isRecording) {
-      stopRecording();
-    } else {
-      startRecording();
-    }
+    startRecording();
   };
 
   // Handle back/close
@@ -353,21 +359,26 @@ export default function MemberRecordScreen() {
       if (mode === 'external') {
         setCameraMode(mode);
         if (ExternalCamera.isSupported) {
-          await ExternalCamera.setExternalModeEnabled(true);
+          ExternalCamera.setExternalModeEnabled(true)
+            .then(() => externalCamera.refresh())
+            .catch((error) => {
+              console.warn('[ExternalCamera] Mode switch failed', error);
+            });
         }
       } else {
         setNativeCameraMountKey((currentKey) => currentKey + 1);
         setCameraMode(mode);
         if (ExternalCamera.isSupported) {
-          await ExternalCamera.setExternalModeEnabled(false);
+          ExternalCamera.setExternalModeEnabled(false)
+            .then(() => externalCamera.refresh())
+            .catch((error) => {
+              console.warn('[ExternalCamera] Mode switch failed', error);
+            });
         }
       }
     } catch (error) {
       console.warn('[ExternalCamera] Mode switch failed', error);
     } finally {
-      externalCamera.refresh().catch((error) => {
-        console.warn('[ExternalCamera] Refresh after mode switch failed', error);
-      });
       setIsModeTransitioning(false);
     }
   };
@@ -396,6 +407,14 @@ export default function MemberRecordScreen() {
     }
 
     if (isExternalMode) {
+      if (isRecording) {
+        return 'Recording from external camera...';
+      }
+
+      if (externalCamera.hasLivePreview) {
+        return 'External camera preview is live.';
+      }
+
       return externalCamera.statusMessage;
     }
 
@@ -478,11 +497,19 @@ export default function MemberRecordScreen() {
             cameraPermissionStatus={cameraPermissionStatus}
             connectionStatus={externalCamera.connectionStatus}
             supportState={externalCamera.supportState}
+            showRetryAction={
+              !hasLiveExternalPreview &&
+              (externalCamera.connectionPhase === 'error' ||
+                externalCamera.sessionState === 'error')
+            }
             sessionState={externalCamera.sessionState}
             statusMessage={externalCamera.statusMessage}
             usbDeviceDetected={externalCamera.attachedUsbVideoDeviceCount > 0}
+            hasLivePreview={externalCamera.hasLivePreview}
+            recordingActive={isRecording}
             simulationControls={externalCamera.simulationControls}
             onOpenSettings={externalCamera.openSettings}
+            onRetry={externalCamera.retryPreview}
             preview={
               !externalCamera.isSimulated ? (
                 <ExternalCameraView
@@ -490,7 +517,7 @@ export default function MemberRecordScreen() {
                 />
               ) : undefined
             }
-            showPreviewPlaceholder={!isExternalReady}
+            showPreviewPlaceholder={!hasLiveExternalPreview}
             style={{
               paddingTop: insets.top + 120,
               paddingBottom: insets.bottom + 160,

@@ -40,7 +40,8 @@ import ExternalCameraView from '@/components/external-camera/ExternalCameraView'
 import { useToast } from '@/hooks/useToast';
 import { useExternalCameraDiagnostics } from '@/hooks/useExternalCameraDiagnostics';
 import { ExternalCamera } from '@/native/external-camera';
-import * as FileSystem from 'expo-file-system';
+import { normalizeLocalFileUri } from '@/utils/local-file-uri';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 
 const SEGMENT_DURATION = 300; // 5 minutes in seconds
@@ -48,7 +49,12 @@ const SEGMENT_DURATION = 300; // 5 minutes in seconds
 type LensType = 'ultra-wide' | 'wide' | 'telephoto';
 
 export default function CameraScreen({ route, navigation }: any) {
-  const { locationId, address } = route.params || {};
+  const params = route.params || {};
+  const locationId = params.locationId ?? params.location?.id;
+  const locationName = params.locationName ?? params.location?.name ?? 'Unknown Location';
+  const address = params.address ?? params.location?.address ?? '';
+  const jobId = params.jobId ?? params.job?.id;
+  const jobTitle = params.jobTitle ?? params.job?.title ?? 'Recording';
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const cameraRef = useRef<Camera>(null);
@@ -58,14 +64,14 @@ export default function CameraScreen({ route, navigation }: any) {
   const { hasPermission: hasMicPermission, requestPermission: requestMicPermission } = useMicrophonePermission();
 
   // Lens selection state - default to ultra-wide
-  const [selectedLens, setSelectedLens] = useState<LensType>('ultra-wide');
+  const [selectedLens, setSelectedLens] = useState<LensType>('wide');
   const [cameraMode, setCameraMode] = useState<CameraMode>('native');
   const [isModeTransitioning, setIsModeTransitioning] = useState(false);
   const [nativeCameraMountKey, setNativeCameraMountKey] = useState(0);
   const externalCamera = useExternalCameraDiagnostics();
   const isExternalMode = cameraMode === 'external';
   const isExternalReady = isExternalMode && externalCamera.isReady;
-  const isNativeCameraActive = cameraMode === 'native' && !isModeTransitioning;
+  const isNativeCameraActive = cameraMode === 'native';
   const showExternalToggle = externalCamera.isSupported;
   const isExternalModeRef = useRef(isExternalMode);
   const cameraPermissionStatus =
@@ -118,6 +124,8 @@ export default function CameraScreen({ route, navigation }: any) {
   const [isRecording, setIsRecording] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [segmentsRecorded, setSegmentsRecorded] = useState(0);
+  const hasLiveExternalPreview =
+    isExternalMode && (externalCamera.hasLivePreview || isSessionActive);
 
   // Animation
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -126,6 +134,13 @@ export default function CameraScreen({ route, navigation }: any) {
   const segmentTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const appState = useRef(AppState.currentState);
   const shouldResumeSessionRef = useRef(false);
+  const currentSegmentRef = useRef<{
+    segmentNumber: number;
+    startedAt: string;
+    cameraMode: 'external' | 'native';
+  } | null>(null);
+  const segmentCounterRef = useRef(0);
+  const startRecordingSegmentRef = useRef<(() => Promise<void>) | null>(null);
 
   useEffect(() => {
     isExternalModeRef.current = isExternalMode;
@@ -282,39 +297,74 @@ export default function CameraScreen({ route, navigation }: any) {
     return `${recordingsDir}${filename}`;
   }, [ensureExternalRecordingDirectory]);
 
+  async function queueCompletedSegment(
+    videoUri: string,
+    cameraMode: 'external' | 'native'
+  ) {
+    const segment = currentSegmentRef.current;
+
+    if (!videoUri || !user || !segment || !locationId || !jobId) {
+      console.warn('[Camera] Missing job or segment metadata, skipping queue');
+      return;
+    }
+
+    currentSegmentRef.current = null;
+    setSegmentsRecorded((prev) => prev + 1);
+
+    try {
+      await UploadQueueService.addToQueue(videoUri, {
+        locationId,
+        locationName,
+        jobId,
+        jobTitle,
+        segmentNumber: segment.segmentNumber,
+        startedAt: segment.startedAt,
+        endedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error('[Camera] Failed to queue segment:', error);
+      Alert.alert(
+        'Upload Queue Error',
+        'This segment could not be saved for background upload.'
+      );
+    }
+
+    if (sessionActiveRef.current) {
+      console.log('[Camera] Starting next segment...');
+      await startRecordingSegmentRef.current?.();
+    }
+  }
+
   // Handle recording stopped callback
   const onRecordingFinished = useCallback(
     async (video: VideoFile) => {
       console.log('[Camera] Segment complete:', video.path);
       setIsRecording(false);
+      if (segmentTimeoutRef.current) {
+        clearTimeout(segmentTimeoutRef.current);
+        segmentTimeoutRef.current = null;
+      }
       if (video?.path && user) {
-        setSegmentsRecorded((prev) => prev + 1);
-
         // Convert path to file:// URI if needed
         const videoUri = video.path.startsWith('file://') 
           ? video.path 
           : `file://${video.path}`;
 
-        await UploadQueueService.addToQueue(
-          videoUri,
-          locationId,
-          user.uid,
-          user.organizationId
-        );
-
-        // If session still active, start next segment immediately
-        if (sessionActiveRef.current) {
-          console.log('[Camera] Starting next segment...');
-          startRecordingSegment();
-        }
+        await queueCompletedSegment(videoUri, 'native');
       }
     },
-    [user, locationId]
+    [user]
   );
 
   const onRecordingError = useCallback((error: any) => {
     console.error('[Camera] Recording error:', error);
     setIsRecording(false);
+    if (segmentTimeoutRef.current) {
+      clearTimeout(segmentTimeoutRef.current);
+      segmentTimeoutRef.current = null;
+    }
+    currentSegmentRef.current = null;
+    segmentCounterRef.current = Math.max(0, segmentCounterRef.current - 1);
     // If session active, try to recover
     if (sessionActiveRef.current) {
       setTimeout(() => startRecordingSegment(), 1000);
@@ -333,7 +383,7 @@ export default function CameraScreen({ route, navigation }: any) {
 
       await ExternalCamera.startRecording(outputPath, {
         enableAudio: false,
-        quality: 'highest',
+        quality: 'hd',
       });
 
       segmentTimeoutRef.current = setTimeout(() => {
@@ -345,9 +395,12 @@ export default function CameraScreen({ route, navigation }: any) {
     } catch (error: any) {
       console.error('[ExternalCamera] Start recording error:', error);
       setIsRecording(false);
-      if (sessionActiveRef.current) {
-        setTimeout(() => startExternalRecordingSegment(), 1000);
+      if (segmentTimeoutRef.current) {
+        clearTimeout(segmentTimeoutRef.current);
+        segmentTimeoutRef.current = null;
       }
+      currentSegmentRef.current = null;
+      segmentCounterRef.current = Math.max(0, segmentCounterRef.current - 1);
     }
   }, [createExternalRecordingPath]);
 
@@ -362,26 +415,12 @@ export default function CameraScreen({ route, navigation }: any) {
       }
 
       if (filePath && user) {
-        setSegmentsRecorded((prev) => prev + 1);
+        const videoUri = normalizeLocalFileUri(filePath);
 
-        const videoUri = filePath.startsWith('file://')
-          ? filePath
-          : `file://${filePath}`;
-
-        await UploadQueueService.addToQueue(
-          videoUri,
-          locationId,
-          user.uid,
-          user.organizationId
-        );
-
-        if (sessionActiveRef.current) {
-          console.log('[ExternalCamera] Starting next segment...');
-          startExternalRecordingSegment();
-        }
+        await queueCompletedSegment(videoUri, 'external');
       }
     },
-    [locationId, startExternalRecordingSegment, user]
+    [user]
   );
 
   const handleExternalRecordingError = useCallback(
@@ -392,11 +431,10 @@ export default function CameraScreen({ route, navigation }: any) {
         clearTimeout(segmentTimeoutRef.current);
         segmentTimeoutRef.current = null;
       }
-      if (sessionActiveRef.current) {
-        setTimeout(() => startExternalRecordingSegment(), 1000);
-      }
+      currentSegmentRef.current = null;
+      segmentCounterRef.current = Math.max(0, segmentCounterRef.current - 1);
     },
-    [startExternalRecordingSegment]
+    []
   );
 
   useEffect(() => {
@@ -428,6 +466,13 @@ export default function CameraScreen({ route, navigation }: any) {
   const startRecordingSegment = useCallback(async () => {
     if (!sessionActiveRef.current) return;
 
+    segmentCounterRef.current += 1;
+    currentSegmentRef.current = {
+      segmentNumber: segmentCounterRef.current,
+      startedAt: new Date().toISOString(),
+      cameraMode: isExternalModeRef.current ? 'external' : 'native',
+    };
+
     if (isExternalModeRef.current) {
       await startExternalRecordingSegment();
       return;
@@ -443,7 +488,6 @@ export default function CameraScreen({ route, navigation }: any) {
         onRecordingFinished,
         onRecordingError,
         fileType: 'mp4',
-        videoBitRate: 'high',
         videoCodec: 'h264',
       });
 
@@ -457,22 +501,43 @@ export default function CameraScreen({ route, navigation }: any) {
     } catch (error: any) {
       console.error('[Camera] Start recording error:', error);
       setIsRecording(false);
+      currentSegmentRef.current = null;
+      segmentCounterRef.current = Math.max(0, segmentCounterRef.current - 1);
       if (sessionActiveRef.current) {
         setTimeout(() => startRecordingSegment(), 1000);
       }
     }
   }, [onRecordingFinished, onRecordingError, startExternalRecordingSegment]);
 
+  useEffect(() => {
+    startRecordingSegmentRef.current = startRecordingSegment;
+  }, [startRecordingSegment]);
+
   // Start recording session
   const startSession = useCallback(async () => {
     console.log('[Camera] Starting session...');
-    setIsSessionActive(true);
-    sessionActiveRef.current = true;
-    setElapsedTime(0);
-    setSegmentsRecorded(0);
+    if (!user || !locationId || !jobId) {
+      Alert.alert('Unable to Start', 'Missing location or job details for this recording session.');
+      return;
+    }
 
-    await startRecordingSegment();
-  }, [startRecordingSegment]);
+    try {
+      currentSegmentRef.current = null;
+      segmentCounterRef.current = 0;
+
+      setIsSessionActive(true);
+      sessionActiveRef.current = true;
+      setElapsedTime(0);
+      setSegmentsRecorded(0);
+
+      await startRecordingSegment();
+    } catch (error: any) {
+      console.error('[Camera] Failed to start session:', error);
+      currentSegmentRef.current = null;
+      segmentCounterRef.current = 0;
+      Alert.alert('Unable to Start Recording', error?.message || 'Failed to start recording.');
+    }
+  }, [jobId, locationId, startRecordingSegment, user]);
 
   // Stop recording session
   const stopSession = useCallback(async () => {
@@ -503,18 +568,18 @@ export default function CameraScreen({ route, navigation }: any) {
     if (isModeTransitioning) {
       return;
     }
+    if (isSessionActive) {
+      stopSession();
+      return;
+    }
     if (isExternalMode && !isExternalReady) {
       Alert.alert(
         'External Camera',
-        'Connect an external camera and complete the checks to start recording.'
+        externalCamera.statusMessage
       );
       return;
     }
-    if (isSessionActive) {
-      stopSession();
-    } else {
-      startSession();
-    }
+    startSession();
   };
 
   // Handle back/close
@@ -564,21 +629,26 @@ export default function CameraScreen({ route, navigation }: any) {
       if (mode === 'external') {
         setCameraMode(mode);
         if (ExternalCamera.isSupported) {
-          await ExternalCamera.setExternalModeEnabled(true);
+          ExternalCamera.setExternalModeEnabled(true)
+            .then(() => externalCamera.refresh())
+            .catch((error) => {
+              console.warn('[ExternalCamera] Mode switch failed', error);
+            });
         }
       } else {
         setNativeCameraMountKey((currentKey) => currentKey + 1);
         setCameraMode(mode);
         if (ExternalCamera.isSupported) {
-          await ExternalCamera.setExternalModeEnabled(false);
+          ExternalCamera.setExternalModeEnabled(false)
+            .then(() => externalCamera.refresh())
+            .catch((error) => {
+              console.warn('[ExternalCamera] Mode switch failed', error);
+            });
         }
       }
     } catch (error) {
       console.warn('[ExternalCamera] Mode switch failed', error);
     } finally {
-      externalCamera.refresh().catch((error) => {
-        console.warn('[ExternalCamera] Refresh after mode switch failed', error);
-      });
       setIsModeTransitioning(false);
     }
   };
@@ -607,6 +677,14 @@ export default function CameraScreen({ route, navigation }: any) {
     }
 
     if (isExternalMode) {
+      if (isSessionActive) {
+        return 'Recording from external camera...';
+      }
+
+      if (externalCamera.hasLivePreview) {
+        return 'External camera preview is live.';
+      }
+
       return externalCamera.statusMessage;
     }
 
@@ -752,7 +830,7 @@ export default function CameraScreen({ route, navigation }: any) {
         <Ionicons name="location-outline" size={64} color="#666" />
         <Text style={styles.permissionTitle}>Missing Information</Text>
         <Text style={styles.permissionText}>
-          Location information is required to start recording.
+          Location and job information are required to start recording.
         </Text>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
@@ -788,11 +866,19 @@ export default function CameraScreen({ route, navigation }: any) {
             cameraPermissionStatus={cameraPermissionStatus}
             connectionStatus={externalCamera.connectionStatus}
             supportState={externalCamera.supportState}
+            showRetryAction={
+              !hasLiveExternalPreview &&
+              (externalCamera.connectionPhase === 'error' ||
+                externalCamera.sessionState === 'error')
+            }
             sessionState={externalCamera.sessionState}
             statusMessage={externalCamera.statusMessage}
             usbDeviceDetected={externalCamera.attachedUsbVideoDeviceCount > 0}
+            hasLivePreview={externalCamera.hasLivePreview}
+            recordingActive={isSessionActive}
             simulationControls={externalCamera.simulationControls}
             onOpenSettings={externalCamera.openSettings}
+            onRetry={externalCamera.retryPreview}
             preview={
               !externalCamera.isSimulated ? (
                 <ExternalCameraView
@@ -800,7 +886,7 @@ export default function CameraScreen({ route, navigation }: any) {
                 />
               ) : undefined
             }
-            showPreviewPlaceholder={!isExternalReady}
+            showPreviewPlaceholder={!hasLiveExternalPreview}
             style={{
               paddingTop: insets.top + 120,
               paddingBottom: insets.bottom + 160,
