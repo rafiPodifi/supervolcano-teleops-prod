@@ -14,6 +14,7 @@ import {
   StatusBar,
   Animated,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
@@ -35,6 +36,7 @@ import { MilestoneCelebration } from '../../components/MilestoneCelebration';
 import { useMilestones } from '../../hooks/useMilestones';
 import CameraModeToggle, { CameraMode } from '../../components/external-camera/CameraModeToggle';
 import ExternalCameraPanel from '../../components/external-camera/ExternalCameraPanel';
+import { getExternalCameraDisplayState } from '../../components/external-camera/external-camera-display';
 import ExternalCameraView from '../../components/external-camera/ExternalCameraView';
 import { useExternalCameraDiagnostics } from '../../hooks/useExternalCameraDiagnostics';
 import { ExternalCamera } from '../../native/external-camera';
@@ -92,8 +94,6 @@ export default function MemberRecordScreen() {
   const [isRecording, setIsRecording] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [currentEncouragement, setCurrentEncouragement] = useState(ENCOURAGEMENTS[0]);
-  const hasLiveExternalPreview =
-    isExternalMode && (externalCamera.hasLivePreview || isRecording);
   
   // Milestone system
   const { checkMilestone, currentMilestone, dismissMilestone, resetMilestones } = useMilestones();
@@ -236,7 +236,7 @@ export default function MemberRecordScreen() {
 
   const createExternalRecordingPath = useCallback(async (): Promise<string> => {
     const recordingsDir = await ensureExternalRecordingDirectory();
-    const filename = `external-${Date.now()}.mp4`;
+    const filename = `external-${Date.now()}`;
     return `${recordingsDir}${filename}`;
   }, [ensureExternalRecordingDirectory]);
 
@@ -400,6 +400,16 @@ export default function MemberRecordScreen() {
     startRecording();
   }, [cameraMode, isExternalReady, isModeTransitioning, startRecording]);
 
+  const externalDisplay = getExternalCameraDisplayState({
+    supportState: externalCamera.supportState,
+    connectionPhase: externalCamera.connectionPhase,
+    sessionState: externalCamera.sessionState,
+    statusMessage: externalCamera.statusMessage,
+    hasLivePreview: externalCamera.hasLivePreview,
+    recordingActive: isRecording,
+    isModeTransitioning,
+  });
+
   // Get status message
   const getStatusMessage = (): string => {
     if (isModeTransitioning) {
@@ -407,15 +417,7 @@ export default function MemberRecordScreen() {
     }
 
     if (isExternalMode) {
-      if (isRecording) {
-        return 'Recording from external camera...';
-      }
-
-      if (externalCamera.hasLivePreview) {
-        return 'External camera preview is live.';
-      }
-
-      return externalCamera.statusMessage;
+      return externalDisplay.footerMessage;
     }
 
     if (isRecording) {
@@ -495,18 +497,11 @@ export default function MemberRecordScreen() {
         <View style={StyleSheet.absoluteFill}>
           <ExternalCameraPanel
             cameraPermissionStatus={cameraPermissionStatus}
-            connectionStatus={externalCamera.connectionStatus}
-            supportState={externalCamera.supportState}
-            showRetryAction={
-              !hasLiveExternalPreview &&
-              (externalCamera.connectionPhase === 'error' ||
-                externalCamera.sessionState === 'error')
-            }
-            sessionState={externalCamera.sessionState}
-            statusMessage={externalCamera.statusMessage}
             usbDeviceDetected={externalCamera.attachedUsbVideoDeviceCount > 0}
-            hasLivePreview={externalCamera.hasLivePreview}
-            recordingActive={isRecording}
+            connectionTestStatus={externalDisplay.connectionTestStatus}
+            connectionLabel={externalDisplay.connectionLabel}
+            connectionHelperText={externalDisplay.connectionHelperText}
+            showRetryAction={externalDisplay.showRetryAction}
             simulationControls={externalCamera.simulationControls}
             onOpenSettings={externalCamera.openSettings}
             onRetry={externalCamera.retryPreview}
@@ -517,7 +512,7 @@ export default function MemberRecordScreen() {
                 />
               ) : undefined
             }
-            showPreviewPlaceholder={!hasLiveExternalPreview}
+            showPreviewPlaceholder={externalDisplay.showPreviewPlaceholder}
             style={{
               paddingTop: insets.top + 120,
               paddingBottom: insets.bottom + 160,
@@ -639,6 +634,13 @@ export default function MemberRecordScreen() {
 
         {/* Status text */}
         <View style={styles.statusContainer}>
+          {isExternalMode && externalDisplay.showSpinner && (
+            <ActivityIndicator
+              size="small"
+              color="rgba(255,255,255,0.8)"
+              style={styles.uploadingSpinner}
+            />
+          )}
           <Text style={styles.statusText} testID="recording-status-text">
             {getStatusMessage()}
           </Text>
@@ -851,6 +853,9 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 16,
     marginBottom: 8,
+  },
+  uploadingSpinner: {
+    marginRight: 8,
   },
   statusText: {
     fontSize: 14,

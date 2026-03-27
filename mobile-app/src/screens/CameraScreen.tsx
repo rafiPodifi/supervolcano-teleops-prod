@@ -36,6 +36,7 @@ import { useUploadQueue } from '@/hooks/useUploadQueue';
 import { Toast } from '@/components/Toast';
 import CameraModeToggle, { CameraMode } from '@/components/external-camera/CameraModeToggle';
 import ExternalCameraPanel from '@/components/external-camera/ExternalCameraPanel';
+import { getExternalCameraDisplayState } from '@/components/external-camera/external-camera-display';
 import ExternalCameraView from '@/components/external-camera/ExternalCameraView';
 import { useToast } from '@/hooks/useToast';
 import { useExternalCameraDiagnostics } from '@/hooks/useExternalCameraDiagnostics';
@@ -122,10 +123,10 @@ export default function CameraScreen({ route, navigation }: any) {
   // Recording state
   const [isSessionActive, setIsSessionActive] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [isFinishingExternalRecording, setIsFinishingExternalRecording] = useState(false);
+  const [showExternalQueuedConfirmation, setShowExternalQueuedConfirmation] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [segmentsRecorded, setSegmentsRecorded] = useState(0);
-  const hasLiveExternalPreview =
-    isExternalMode && (externalCamera.hasLivePreview || isSessionActive);
 
   // Animation
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -141,6 +142,13 @@ export default function CameraScreen({ route, navigation }: any) {
   } | null>(null);
   const segmentCounterRef = useRef(0);
   const startRecordingSegmentRef = useRef<(() => Promise<void>) | null>(null);
+  const externalFinalizeWaitRef = useRef<{
+    promise: Promise<void>;
+    resolve: () => void;
+    reject: (error: Error) => void;
+    timeout: ReturnType<typeof setTimeout>;
+  } | null>(null);
+  const externalQueuedConfirmationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     isExternalModeRef.current = isExternalMode;
@@ -173,6 +181,9 @@ export default function CameraScreen({ route, navigation }: any) {
       subscription.remove();
       if (segmentTimeoutRef.current) {
         clearTimeout(segmentTimeoutRef.current);
+      }
+      if (externalQueuedConfirmationTimeoutRef.current) {
+        clearTimeout(externalQueuedConfirmationTimeoutRef.current);
       }
     };
   }, []);
@@ -293,19 +304,107 @@ export default function CameraScreen({ route, navigation }: any) {
 
   const createExternalRecordingPath = useCallback(async (): Promise<string> => {
     const recordingsDir = await ensureExternalRecordingDirectory();
-    const filename = `external-${Date.now()}.mp4`;
+    const filename = `external-${Date.now()}`;
     return `${recordingsDir}${filename}`;
   }, [ensureExternalRecordingDirectory]);
+
+  const clearExternalFinalizeWait = useCallback(() => {
+    const pending = externalFinalizeWaitRef.current;
+    if (!pending) {
+      return;
+    }
+    clearTimeout(pending.timeout);
+    externalFinalizeWaitRef.current = null;
+    setIsFinishingExternalRecording(false);
+  }, []);
+
+  const showQueuedConfirmation = useCallback(() => {
+    if (externalQueuedConfirmationTimeoutRef.current) {
+      clearTimeout(externalQueuedConfirmationTimeoutRef.current);
+    }
+    setShowExternalQueuedConfirmation(true);
+    externalQueuedConfirmationTimeoutRef.current = setTimeout(() => {
+      setShowExternalQueuedConfirmation(false);
+      externalQueuedConfirmationTimeoutRef.current = null;
+    }, 2500);
+  }, []);
+
+  const resolveExternalFinalizeWait = useCallback(() => {
+    const pending = externalFinalizeWaitRef.current;
+    if (!pending) {
+      return;
+    }
+    clearTimeout(pending.timeout);
+    externalFinalizeWaitRef.current = null;
+    setIsFinishingExternalRecording(false);
+    pending.resolve();
+  }, []);
+
+  const rejectExternalFinalizeWait = useCallback((message: string) => {
+    const pending = externalFinalizeWaitRef.current;
+    if (!pending) {
+      return;
+    }
+    clearTimeout(pending.timeout);
+    externalFinalizeWaitRef.current = null;
+    setIsFinishingExternalRecording(false);
+    pending.reject(new Error(message));
+  }, []);
+
+  const ensureExternalFinalizeWait = useCallback((): Promise<void> => {
+    if (externalFinalizeWaitRef.current) {
+      return externalFinalizeWaitRef.current.promise;
+    }
+
+    setIsFinishingExternalRecording(true);
+    UploadQueueService.logDebug('info', 'Waiting for external recording finalize event');
+
+    let resolveFn!: () => void;
+    let rejectFn!: (error: Error) => void;
+    const promise = new Promise<void>((resolve, reject) => {
+      resolveFn = resolve;
+      rejectFn = reject;
+    });
+    const timeout = setTimeout(() => {
+      UploadQueueService.logDebug(
+        'error',
+        'Timed out waiting for external recording finalization'
+      );
+      rejectExternalFinalizeWait('Timed out waiting for external recording finalization.');
+    }, 15000);
+
+    externalFinalizeWaitRef.current = {
+      promise,
+      resolve: resolveFn,
+      reject: rejectFn,
+      timeout,
+    };
+    return promise;
+  }, [rejectExternalFinalizeWait]);
 
   async function queueCompletedSegment(
     videoUri: string,
     cameraMode: 'external' | 'native'
-  ) {
+  ): Promise<boolean> {
     const segment = currentSegmentRef.current;
 
     if (!videoUri || !user || !segment || !locationId || !jobId) {
       console.warn('[Camera] Missing job or segment metadata, skipping queue');
-      return;
+      if (cameraMode === 'external') {
+        UploadQueueService.logDebug(
+          'error',
+          'External recording could not be queued because segment metadata was missing',
+          JSON.stringify({
+            hasVideoUri: !!videoUri,
+            hasUser: !!user,
+            hasSegment: !!segment,
+            hasLocationId: !!locationId,
+            hasJobId: !!jobId,
+          }),
+          'failed'
+        );
+      }
+      return false;
     }
 
     currentSegmentRef.current = null;
@@ -321,18 +420,37 @@ export default function CameraScreen({ route, navigation }: any) {
         startedAt: segment.startedAt,
         endedAt: new Date().toISOString(),
       });
+      if (cameraMode === 'external') {
+        UploadQueueService.logDebug(
+          'info',
+          'External recording segment queued successfully',
+          videoUri,
+          'queued'
+        );
+      }
     } catch (error) {
       console.error('[Camera] Failed to queue segment:', error);
+      if (cameraMode === 'external') {
+        UploadQueueService.logDebug(
+          'error',
+          'External recording segment failed to enter upload queue',
+          String(error),
+          'failed'
+        );
+      }
       Alert.alert(
         'Upload Queue Error',
         'This segment could not be saved for background upload.'
       );
+      return false;
     }
 
     if (sessionActiveRef.current) {
       console.log('[Camera] Starting next segment...');
       await startRecordingSegmentRef.current?.();
     }
+
+    return true;
   }
 
   // Handle recording stopped callback
@@ -407,6 +525,7 @@ export default function CameraScreen({ route, navigation }: any) {
   const handleExternalRecordingFinished = useCallback(
     async (filePath: string) => {
       console.log('[ExternalCamera] Segment complete:', filePath);
+      UploadQueueService.logDebug('info', 'External finalize event received', filePath);
       setIsRecording(false);
 
       if (segmentTimeoutRef.current) {
@@ -416,16 +535,69 @@ export default function CameraScreen({ route, navigation }: any) {
 
       if (filePath && user) {
         const videoUri = normalizeLocalFileUri(filePath);
-
-        await queueCompletedSegment(videoUri, 'external');
+        try {
+          const fileInfo = await FileSystem.getInfoAsync(videoUri);
+          const fileSize =
+            'size' in fileInfo && typeof fileInfo.size === 'number' ? fileInfo.size : 0;
+          if (!fileInfo.exists || fileSize <= 0) {
+            UploadQueueService.logDebug(
+              'error',
+              'External recording finalized without a usable MP4 file',
+              JSON.stringify({
+                path: videoUri,
+                exists: fileInfo.exists,
+                size: fileSize,
+              }),
+              'failed'
+            );
+            rejectExternalFinalizeWait('External recording did not produce a valid MP4 file.');
+            return;
+          }
+          UploadQueueService.logDebug(
+            'info',
+            'Queueing finalized external recording segment',
+            JSON.stringify({
+              path: videoUri,
+              size: fileSize,
+            }),
+            'queued'
+          );
+          const queued = await queueCompletedSegment(videoUri, 'external');
+          if (queued) {
+            if (!sessionActiveRef.current) {
+              showQueuedConfirmation();
+            }
+            resolveExternalFinalizeWait();
+          } else {
+            rejectExternalFinalizeWait('External recording finished, but queueing failed.');
+          }
+        } catch (error: any) {
+          rejectExternalFinalizeWait(
+            error?.message || 'External recording finished, but queueing failed.'
+          );
+        }
+      } else {
+        rejectExternalFinalizeWait('External recording finalized without a file path.');
       }
     },
-    [user]
+    [
+      queueCompletedSegment,
+      rejectExternalFinalizeWait,
+      resolveExternalFinalizeWait,
+      showQueuedConfirmation,
+      user,
+    ]
   );
 
   const handleExternalRecordingError = useCallback(
     (message?: string) => {
       console.error('[ExternalCamera] Recording error:', message);
+      UploadQueueService.logDebug(
+        'error',
+        'External recording reported an error',
+        message || 'Unknown external camera error',
+        'failed'
+      );
       setIsRecording(false);
       if (segmentTimeoutRef.current) {
         clearTimeout(segmentTimeoutRef.current);
@@ -433,8 +605,9 @@ export default function CameraScreen({ route, navigation }: any) {
       }
       currentSegmentRef.current = null;
       segmentCounterRef.current = Math.max(0, segmentCounterRef.current - 1);
+      rejectExternalFinalizeWait(message || 'External recording failed before finalization.');
     },
-    []
+    [rejectExternalFinalizeWait]
   );
 
   useEffect(() => {
@@ -551,25 +724,42 @@ export default function CameraScreen({ route, navigation }: any) {
     }
 
     if (isExternalModeRef.current) {
+      const shouldWaitForFinalize = isRecording || !!currentSegmentRef.current;
+      const finalizePromise = shouldWaitForFinalize ? ensureExternalFinalizeWait() : null;
+      UploadQueueService.logDebug(
+        'info',
+        'External recording stop requested',
+        shouldWaitForFinalize ? 'Awaiting finalize before leaving camera screen' : undefined
+      );
       try {
         await ExternalCamera.stopRecording();
+        if (finalizePromise) {
+          await finalizePromise;
+        }
       } catch (error) {
         console.warn('[ExternalCamera] Stop recording error:', error);
+        clearExternalFinalizeWait();
+        throw error;
       }
     } else if (cameraRef.current && isRecording) {
       await cameraRef.current.stopRecording();
     }
 
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  }, [isRecording]);
+  }, [clearExternalFinalizeWait, ensureExternalFinalizeWait, isRecording]);
 
   // Handle record button press
   const handleRecordPress = () => {
-    if (isModeTransitioning) {
+    if (isModeTransitioning || isFinishingExternalRecording) {
       return;
     }
     if (isSessionActive) {
-      stopSession();
+      void stopSession().catch((error: any) => {
+        Alert.alert(
+          'Could Not Finish Recording',
+          error?.message || 'The recording could not be finalized for upload.'
+        );
+      });
       return;
     }
     if (isExternalMode && !isExternalReady) {
@@ -593,9 +783,16 @@ export default function CameraScreen({ route, navigation }: any) {
           {
             text: 'Stop & Exit',
             style: 'destructive',
-            onPress: () => {
-              stopSession();
-              navigation.goBack();
+            onPress: async () => {
+              try {
+                await stopSession();
+                navigation.goBack();
+              } catch (error: any) {
+                Alert.alert(
+                  'Could Not Finish Recording',
+                  error?.message || 'The recording could not be finalized for upload.'
+                );
+              }
             },
           },
         ]
@@ -603,6 +800,10 @@ export default function CameraScreen({ route, navigation }: any) {
     } else {
       navigation.goBack();
     }
+  };
+
+  const openUploadQueue = () => {
+    navigation.navigate('UploadQueue');
   };
 
   // Handle lens change
@@ -670,6 +871,24 @@ export default function CameraScreen({ route, navigation }: any) {
     startSession();
   }, [cameraMode, isExternalReady, isModeTransitioning, startSession]);
 
+  useEffect(() => {
+    if (!isExternalMode || isSessionActive) {
+      setShowExternalQueuedConfirmation(false);
+    }
+  }, [isExternalMode, isSessionActive]);
+
+  const externalDisplay = getExternalCameraDisplayState({
+    supportState: externalCamera.supportState,
+    connectionPhase: externalCamera.connectionPhase,
+    sessionState: externalCamera.sessionState,
+    statusMessage: externalCamera.statusMessage,
+    hasLivePreview: externalCamera.hasLivePreview,
+    recordingActive: isSessionActive,
+    isModeTransitioning,
+    isFinishingRecording: isFinishingExternalRecording,
+    showQueuedConfirmation: showExternalQueuedConfirmation,
+  });
+
   // Get status message
   const getStatusMessage = (): string => {
     if (isModeTransitioning) {
@@ -677,15 +896,7 @@ export default function CameraScreen({ route, navigation }: any) {
     }
 
     if (isExternalMode) {
-      if (isSessionActive) {
-        return 'Recording from external camera...';
-      }
-
-      if (externalCamera.hasLivePreview) {
-        return 'External camera preview is live.';
-      }
-
-      return externalCamera.statusMessage;
+      return externalDisplay.footerMessage;
     }
 
     if (isSessionActive) {
@@ -864,18 +1075,11 @@ export default function CameraScreen({ route, navigation }: any) {
         <View style={StyleSheet.absoluteFill}>
           <ExternalCameraPanel
             cameraPermissionStatus={cameraPermissionStatus}
-            connectionStatus={externalCamera.connectionStatus}
-            supportState={externalCamera.supportState}
-            showRetryAction={
-              !hasLiveExternalPreview &&
-              (externalCamera.connectionPhase === 'error' ||
-                externalCamera.sessionState === 'error')
-            }
-            sessionState={externalCamera.sessionState}
-            statusMessage={externalCamera.statusMessage}
             usbDeviceDetected={externalCamera.attachedUsbVideoDeviceCount > 0}
-            hasLivePreview={externalCamera.hasLivePreview}
-            recordingActive={isSessionActive}
+            connectionTestStatus={externalDisplay.connectionTestStatus}
+            connectionLabel={externalDisplay.connectionLabel}
+            connectionHelperText={externalDisplay.connectionHelperText}
+            showRetryAction={externalDisplay.showRetryAction}
             simulationControls={externalCamera.simulationControls}
             onOpenSettings={externalCamera.openSettings}
             onRetry={externalCamera.retryPreview}
@@ -886,7 +1090,7 @@ export default function CameraScreen({ route, navigation }: any) {
                 />
               ) : undefined
             }
-            showPreviewPlaceholder={!hasLiveExternalPreview}
+            showPreviewPlaceholder={externalDisplay.showPreviewPlaceholder}
             style={{
               paddingTop: insets.top + 120,
               paddingBottom: insets.bottom + 160,
@@ -942,9 +1146,13 @@ export default function CameraScreen({ route, navigation }: any) {
 
           {/* Queue indicator when not recording */}
           {!isSessionActive && uploadQueue.total > 0 && (
-            <View style={styles.queueBadge}>
+            <TouchableOpacity
+              onPress={openUploadQueue}
+              style={styles.queueBadge}
+              activeOpacity={0.8}
+            >
               <Text style={styles.queueBadgeText}>{uploadQueue.total}</Text>
-            </View>
+            </TouchableOpacity>
           )}
         </HeaderPill>
         {showExternalToggle && (
@@ -1002,7 +1210,9 @@ export default function CameraScreen({ route, navigation }: any) {
           onPress={handleRecordPress}
           style={[
             styles.recordButtonOuter,
-            (isExternalMode && !isExternalReady) || isModeTransitioning
+            (isExternalMode && !isExternalReady) ||
+            isModeTransitioning ||
+            isFinishingExternalRecording
               ? styles.recordButtonDisabled
               : null,
           ]}
@@ -1025,10 +1235,10 @@ export default function CameraScreen({ route, navigation }: any) {
         {/* Status text */}
         <TouchableOpacity
           style={styles.statusContainer}
-          onPress={uploadQueue.failed > 0 ? uploadQueue.retryFailed : undefined}
-          activeOpacity={uploadQueue.failed > 0 ? 0.7 : 1}
+          onPress={uploadQueue.total > 0 ? openUploadQueue : undefined}
+          activeOpacity={uploadQueue.total > 0 ? 0.7 : 1}
         >
-          {uploadQueue.isUploading && (
+          {(isExternalMode ? externalDisplay.showSpinner : uploadQueue.isUploading) && (
             <ActivityIndicator
               size="small"
               color="rgba(255,255,255,0.8)"

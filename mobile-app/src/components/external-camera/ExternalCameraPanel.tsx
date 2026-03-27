@@ -9,25 +9,19 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type {
-  ExternalCameraConnectionStatus,
   ExternalCameraSimulationControls,
 } from '../../hooks/useExternalCameraDiagnostics';
-import type {
-  ExternalCameraSessionState,
-  ExternalCameraSupportState,
-} from '../../native/external-camera';
+import type { ExternalCameraSupportState } from '../../native/external-camera';
+import type { ExternalCameraTestStatus } from './external-camera-display';
 
 type CameraPermissionStatus = 'unknown' | 'granted' | 'denied';
 
 type ExternalCameraPanelProps = {
   cameraPermissionStatus: CameraPermissionStatus;
-  connectionStatus: ExternalCameraConnectionStatus;
-  supportState: ExternalCameraSupportState;
-  sessionState?: ExternalCameraSessionState | null;
-  statusMessage: string;
   usbDeviceDetected: boolean;
-  hasLivePreview?: boolean;
-  recordingActive?: boolean;
+  connectionTestStatus: ExternalCameraTestStatus;
+  connectionLabel: string;
+  connectionHelperText: string;
   simulationControls?: ExternalCameraSimulationControls | null;
   onOpenSettings?: () => void;
   onRetry?: () => void;
@@ -37,18 +31,16 @@ type ExternalCameraPanelProps = {
   showRetryAction?: boolean;
 };
 
-type TestStatus = 'pass' | 'fail' | 'pending';
-
 type TestRowProps = {
   title: string;
-  status: TestStatus;
+  status: ExternalCameraTestStatus;
   statusLabel: string;
   helperText?: string;
   actionLabel?: string;
   onAction?: () => void;
 };
 
-const getStatusMeta = (status: TestStatus) => {
+const getStatusMeta = (status: ExternalCameraTestStatus) => {
   switch (status) {
     case 'pass':
       return { icon: 'checkmark-circle', color: '#22C55E' };
@@ -94,13 +86,10 @@ const TestRow = ({
 
 export default function ExternalCameraPanel({
   cameraPermissionStatus,
-  connectionStatus,
-  supportState,
-  sessionState,
-  statusMessage,
   usbDeviceDetected,
-  hasLivePreview = false,
-  recordingActive = false,
+  connectionTestStatus,
+  connectionLabel,
+  connectionHelperText,
   simulationControls,
   onOpenSettings,
   onRetry,
@@ -109,7 +98,7 @@ export default function ExternalCameraPanel({
   showPreviewPlaceholder = !preview,
   showRetryAction = false,
 }: ExternalCameraPanelProps) {
-  const permissionStatus: TestStatus =
+  const permissionStatus: ExternalCameraTestStatus =
     cameraPermissionStatus === 'granted'
       ? 'pass'
       : cameraPermissionStatus === 'denied'
@@ -127,77 +116,7 @@ export default function ExternalCameraPanel({
       ? 'Allow camera access in settings.'
       : undefined;
 
-  const hasActivePreview = hasLivePreview || recordingActive;
-
-  const connectionTestStatus: TestStatus =
-    hasActivePreview
-      ? 'pass'
-      : sessionState === 'error'
-      ? 'fail'
-      : supportState === 'disconnected' ||
-        supportState === 'usb_attached_not_supported' ||
-        supportState === 'usb_host_unsupported'
-      ? 'fail'
-      : supportState === 'ready' ||
-        supportState === 'unknown' ||
-        supportState === 'camera_permission_required' ||
-        supportState === 'usb_permission_required' ||
-        supportState === 'temporarily_unavailable'
-      ? 'pending'
-      : connectionStatus === 'disconnected'
-      ? 'fail'
-      : 'pending';
-
-  const connectionLabel = (() => {
-    if (recordingActive) {
-      return 'Recording';
-    }
-
-    if (hasLivePreview) {
-      return 'Connected';
-    }
-
-    switch (supportState) {
-      case 'ready':
-        switch (sessionState) {
-          case 'ready':
-            return 'Ready';
-          case 'opening':
-            return 'Connecting';
-          case 'closing':
-            return 'Closing';
-          case 'inactive':
-            return 'Detected';
-          case 'error':
-            return 'Unavailable';
-          default:
-            return 'Detected';
-        }
-      case 'camera_permission_required':
-        return 'App permission needed';
-      case 'temporarily_unavailable':
-        return 'Unavailable';
-      case 'usb_permission_required':
-        return 'USB permission needed';
-      case 'usb_attached_not_supported':
-        return 'Unsupported';
-      case 'usb_host_unsupported':
-        return 'USB host unavailable';
-      case 'unknown':
-        return 'Checking';
-      case 'disconnected':
-      default:
-        return 'Not detected';
-    }
-  })();
-
-  const connectionHelperText = recordingActive
-    ? 'Recording from the external camera.'
-    : hasLivePreview
-    ? 'External camera preview is live.'
-    : statusMessage;
-
-  const usbTestStatus: TestStatus = usbDeviceDetected ? 'pass' : 'fail';
+  const usbTestStatus: ExternalCameraTestStatus = usbDeviceDetected ? 'pass' : 'fail';
   const usbLabel = usbDeviceDetected ? 'Detected' : 'Not detected';
   const usbHelper = usbDeviceDetected
     ? undefined
