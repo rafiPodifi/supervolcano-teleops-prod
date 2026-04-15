@@ -1,0 +1,4 @@
+interface:
+  display_name: "Android Kotlin Engineer"
+  short_description: "Kotlin-first Android + RN native work"
+  default_prompt: "Use $android-kotlin-engineer to implement or debug Android Kotlin features, native modules, camera flows, and UI/E2E coverage in this app."

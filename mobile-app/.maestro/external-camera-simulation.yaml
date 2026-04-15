@@ -1,0 +1,22 @@
+appId: com.supervolcano.camera
+---
+# Open MemberRecordScreen in a debug build before running this flow.
+- assertVisible:
+    id: "camera-mode-native"
+- tapOn:
+    id: "camera-mode-external"
+- assertVisible:
+    id: "external-camera-panel"
+- assertVisible:
+    id: "external-camera-simulation-card"
+- tapOn:
+    id: "external-camera-sim-usb-permission"
+- assertVisible: "Grant access to the USB camera in the system prompt."
+- tapOn:
+    id: "external-camera-sim-unavailable"
+- assertVisible: "USB camera detected, but it could not be opened through Camera2 or the UVC fallback."
+- tapOn:
+    id: "external-camera-sim-ready"
+- assertVisible: "External camera ready."
+- assertVisible:
+    id: "record-button"

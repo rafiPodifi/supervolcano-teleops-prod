@@ -12,9 +12,9 @@ import {
   StyleSheet,
   Alert,
   StatusBar,
-  ActivityIndicator,
   Animated,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
@@ -34,6 +34,14 @@ import * as Haptics from 'expo-haptics';
 import Mascot from '../../components/member/Mascot';
 import { MilestoneCelebration } from '../../components/MilestoneCelebration';
 import { useMilestones } from '../../hooks/useMilestones';
+import CameraModeToggle, { CameraMode } from '../../components/external-camera/CameraModeToggle';
+import ExternalCameraPanel from '../../components/external-camera/ExternalCameraPanel';
+import { getExternalCameraDisplayState } from '../../components/external-camera/external-camera-display';
+import ExternalCameraView from '../../components/external-camera/ExternalCameraView';
+import { useExternalCameraDiagnostics } from '../../hooks/useExternalCameraDiagnostics';
+import { ExternalCamera } from '../../native/external-camera';
+import { normalizeLocalFileUri } from '../../utils/local-file-uri';
+import * as FileSystem from 'expo-file-system/legacy';
 
 type NavigationProp = NativeStackNavigationProp<MemberStackParamList>;
 
@@ -55,10 +63,25 @@ export default function MemberRecordScreen() {
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const cameraRef = useRef<Camera>(null);
+  const [cameraMode, setCameraMode] = useState<CameraMode>('native');
+  const [isModeTransitioning, setIsModeTransitioning] = useState(false);
+  const [nativeCameraMountKey, setNativeCameraMountKey] = useState(0);
+  const externalCamera = useExternalCameraDiagnostics();
+  const isExternalMode = cameraMode === 'external';
+  const isExternalReady = isExternalMode && externalCamera.isReady;
+  const isNativeCameraActive = cameraMode === 'native';
+  const showExternalToggle = externalCamera.isSupported;
+  const isExternalModeRef = useRef(isExternalMode);
 
   // Permissions
   const { hasPermission: hasCameraPermission, requestPermission: requestCameraPermission } = useCameraPermission();
   const { hasPermission: hasMicPermission, requestPermission: requestMicPermission } = useMicrophonePermission();
+  const cameraPermissionStatus =
+    hasCameraPermission === null
+      ? 'unknown'
+      : hasCameraPermission
+      ? 'granted'
+      : 'denied';
 
   // Camera device - prefer ultra-wide for cleaning (captures more)
   const device = useCameraDevice('back', {
@@ -81,6 +104,27 @@ export default function MemberRecordScreen() {
   const progressAnim = useRef(new Animated.Value(0)).current;
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const encouragementRef = useRef<NodeJS.Timeout | null>(null);
+  const shouldResumeRecordingRef = useRef(false);
+
+  useEffect(() => {
+    isExternalModeRef.current = isExternalMode;
+  }, [isExternalMode]);
+
+  useEffect(() => {
+    if (!ExternalCamera.isSupported) {
+      return;
+    }
+
+    ExternalCamera.setExternalModeEnabled(false).catch((error) => {
+      console.warn('[ExternalCamera] Failed to reset external mode on mount', error);
+    });
+
+    return () => {
+      ExternalCamera.setExternalModeEnabled(false).catch((error) => {
+        console.warn('[ExternalCamera] Failed to disable external mode on unmount', error);
+      });
+    };
+  }, []);
 
   // Calculate progress
   const totalHours = totalHoursUploaded + (elapsedSeconds / 3600);
@@ -145,12 +189,78 @@ export default function MemberRecordScreen() {
     }).start();
   }, [progress]);
 
+  useEffect(() => {
+    if (!ExternalCamera.isSupported) {
+      return;
+    }
+
+    const subscription = ExternalCamera.addRecordingStateListener((event) => {
+      if (!isExternalModeRef.current) {
+        return;
+      }
+
+      if (event.state === 'finalized') {
+        setIsRecording(false);
+        if (event.filePath) {
+          console.log(
+            '[MemberRecord] External video saved:',
+            normalizeLocalFileUri(event.filePath)
+          );
+        }
+      }
+
+      if (event.state === 'error') {
+        console.error('[MemberRecord] External recording error:', event.message);
+        setIsRecording(false);
+      }
+    });
+
+    return () => {
+      subscription?.remove();
+    };
+  }, []);
+
+  const ensureExternalRecordingDirectory = useCallback(async (): Promise<string> => {
+    const baseDir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
+    if (!baseDir) {
+      throw new Error('No writable directory available');
+    }
+
+    const recordingsDir = `${baseDir}external-recordings/`;
+    const dirInfo = await FileSystem.getInfoAsync(recordingsDir);
+    if (!dirInfo.exists) {
+      await FileSystem.makeDirectoryAsync(recordingsDir, { intermediates: true });
+    }
+    return recordingsDir;
+  }, []);
+
+  const createExternalRecordingPath = useCallback(async (): Promise<string> => {
+    const recordingsDir = await ensureExternalRecordingDirectory();
+    const filename = `external-${Date.now()}`;
+    return `${recordingsDir}${filename}`;
+  }, [ensureExternalRecordingDirectory]);
+
   const startRecording = useCallback(async () => {
-    if (!cameraRef.current) return;
     try {
       resetMilestones();
       setElapsedSeconds(0);
       setIsRecording(true);
+
+      if (isExternalModeRef.current) {
+        if (!ExternalCamera.isSupported) {
+          throw new Error('External camera not supported');
+        }
+
+        const outputPath = await createExternalRecordingPath();
+        await ExternalCamera.startRecording(outputPath, {
+          enableAudio: false,
+          quality: 'hd',
+        });
+        return;
+      }
+
+      if (!cameraRef.current) return;
+
       cameraRef.current.startRecording({
         onRecordingFinished: (video) => {
           console.log('[MemberRecord] Video saved:', video.path);
@@ -164,12 +274,16 @@ export default function MemberRecordScreen() {
     } catch (error) {
       console.error('[MemberRecord] Start error:', error);
     }
-  }, [resetMilestones]);
+  }, [createExternalRecordingPath, resetMilestones]);
 
   const stopRecording = async (navigateToComplete: boolean = true) => {
-    if (!cameraRef.current || !isRecording) return;
     try {
-      await cameraRef.current.stopRecording();
+      if (isExternalModeRef.current) {
+        await ExternalCamera.stopRecording();
+      } else {
+        if (!cameraRef.current || !isRecording) return;
+        await cameraRef.current.stopRecording();
+      }
       setIsRecording(false);
       if (timerRef.current) clearInterval(timerRef.current);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -189,11 +303,21 @@ export default function MemberRecordScreen() {
 
   // Handle record button press
   const handleRecordPress = () => {
+    if (isModeTransitioning) {
+      return;
+    }
     if (isRecording) {
       stopRecording();
-    } else {
-      startRecording();
+      return;
     }
+    if (isExternalMode && !isExternalReady) {
+      Alert.alert(
+        'External Camera',
+        externalCamera.statusMessage
+      );
+      return;
+    }
+    startRecording();
   };
 
   // Handle back/close
@@ -219,8 +343,83 @@ export default function MemberRecordScreen() {
     }
   };
 
+  const handleCameraModeChange = async (mode: CameraMode) => {
+    if (mode === cameraMode || isModeTransitioning) {
+      return;
+    }
+
+    setIsModeTransitioning(true);
+    const wasRecording = isRecording;
+    if (wasRecording) {
+      await stopRecording(false);
+      shouldResumeRecordingRef.current = true;
+    }
+
+    try {
+      if (mode === 'external') {
+        setCameraMode(mode);
+        if (ExternalCamera.isSupported) {
+          ExternalCamera.setExternalModeEnabled(true)
+            .then(() => externalCamera.refresh())
+            .catch((error) => {
+              console.warn('[ExternalCamera] Mode switch failed', error);
+            });
+        }
+      } else {
+        setNativeCameraMountKey((currentKey) => currentKey + 1);
+        setCameraMode(mode);
+        if (ExternalCamera.isSupported) {
+          ExternalCamera.setExternalModeEnabled(false)
+            .then(() => externalCamera.refresh())
+            .catch((error) => {
+              console.warn('[ExternalCamera] Mode switch failed', error);
+            });
+        }
+      }
+    } catch (error) {
+      console.warn('[ExternalCamera] Mode switch failed', error);
+    } finally {
+      setIsModeTransitioning(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!shouldResumeRecordingRef.current) {
+      return;
+    }
+
+    if (isModeTransitioning) {
+      return;
+    }
+
+    if (cameraMode === 'external' && !isExternalReady) {
+      return;
+    }
+
+    shouldResumeRecordingRef.current = false;
+    startRecording();
+  }, [cameraMode, isExternalReady, isModeTransitioning, startRecording]);
+
+  const externalDisplay = getExternalCameraDisplayState({
+    supportState: externalCamera.supportState,
+    connectionPhase: externalCamera.connectionPhase,
+    sessionState: externalCamera.sessionState,
+    statusMessage: externalCamera.statusMessage,
+    hasLivePreview: externalCamera.hasLivePreview,
+    recordingActive: isRecording,
+    isModeTransitioning,
+  });
+
   // Get status message
   const getStatusMessage = (): string => {
+    if (isModeTransitioning) {
+      return 'Switching camera...';
+    }
+
+    if (isExternalMode) {
+      return externalDisplay.footerMessage;
+    }
+
     if (isRecording) {
       return 'Recording...';
     }
@@ -294,20 +493,51 @@ export default function MemberRecordScreen() {
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
 
       {/* Full-screen camera */}
-      <Camera
-        ref={cameraRef}
-        style={StyleSheet.absoluteFill}
-        device={device}
-        isActive={true}
-        video={true}
-        audio={true}
-        zoom={0.5}
-      />
+      {isExternalMode && showExternalToggle ? (
+        <View style={StyleSheet.absoluteFill}>
+          <ExternalCameraPanel
+            cameraPermissionStatus={cameraPermissionStatus}
+            usbDeviceDetected={externalCamera.attachedUsbVideoDeviceCount > 0}
+            connectionTestStatus={externalDisplay.connectionTestStatus}
+            connectionLabel={externalDisplay.connectionLabel}
+            connectionHelperText={externalDisplay.connectionHelperText}
+            showRetryAction={externalDisplay.showRetryAction}
+            simulationControls={externalCamera.simulationControls}
+            onOpenSettings={externalCamera.openSettings}
+            onRetry={externalCamera.retryPreview}
+            preview={
+              !externalCamera.isSimulated ? (
+                <ExternalCameraView
+                  style={StyleSheet.absoluteFill}
+                />
+              ) : undefined
+            }
+            showPreviewPlaceholder={externalDisplay.showPreviewPlaceholder}
+            style={{
+              paddingTop: insets.top + 120,
+              paddingBottom: insets.bottom + 160,
+            }}
+          />
+        </View>
+      ) : (
+        <Camera
+          key={`member-native-camera-${nativeCameraMountKey}`}
+          ref={cameraRef}
+          style={StyleSheet.absoluteFill}
+          device={device}
+          isActive={isNativeCameraActive}
+          video={true}
+          audio={true}
+          zoom={0.5}
+        />
+      )}
 
       {/* Mascot witness - bottom left */}
-      <View style={styles.mascotWitness}>
-        <Mascot size={44} />
-      </View>
+      {!isExternalMode && (
+        <View style={styles.mascotWitness}>
+          <Mascot size={44} />
+        </View>
+      )}
 
       {/* Top header with progress */}
       <View style={[styles.topContainer, { top: insets.top + 10 }]}>
@@ -341,10 +571,20 @@ export default function MemberRecordScreen() {
             </Animated.View>
           )}
         </HeaderPill>
+        {showExternalToggle && (
+          <View style={styles.modeToggleContainer}>
+            <CameraModeToggle
+              value={cameraMode}
+              onChange={handleCameraModeChange}
+              externalDisabled={!externalCamera.canSwitchToExternal}
+              disabled={isModeTransitioning}
+            />
+          </View>
+        )}
       </View>
 
       {/* Milestone celebration overlay */}
-      {currentMilestone && (
+      {!isExternalMode && currentMilestone && (
         <MilestoneCelebration
           milestone={currentMilestone}
           totalHours={totalHoursUploaded + (elapsedSeconds / 3600)}
@@ -369,8 +609,14 @@ export default function MemberRecordScreen() {
         {/* Record/Stop button */}
         <TouchableOpacity
           onPress={handleRecordPress}
-          style={styles.recordButtonOuter}
+          style={[
+            styles.recordButtonOuter,
+            (isExternalMode && !isExternalReady) || isModeTransitioning
+              ? styles.recordButtonDisabled
+              : null,
+          ]}
           activeOpacity={0.8}
+          testID="record-button"
         >
           <View
             style={[
@@ -388,7 +634,14 @@ export default function MemberRecordScreen() {
 
         {/* Status text */}
         <View style={styles.statusContainer}>
-          <Text style={styles.statusText}>
+          {isExternalMode && externalDisplay.showSpinner && (
+            <ActivityIndicator
+              size="small"
+              color="rgba(255,255,255,0.8)"
+              style={styles.uploadingSpinner}
+            />
+          )}
+          <Text style={styles.statusText} testID="recording-status-text">
             {getStatusMessage()}
           </Text>
         </View>
@@ -453,6 +706,10 @@ const styles = StyleSheet.create({
     left: 16,
     right: 16,
     zIndex: 10,
+  },
+  modeToggleContainer: {
+    marginTop: 10,
+    alignItems: 'center',
   },
   headerPill: {
     flexDirection: 'row',
@@ -563,6 +820,9 @@ const styles = StyleSheet.create({
       },
     }),
   },
+  recordButtonDisabled: {
+    opacity: 0.45,
+  },
   recordButtonInner: {
     width: 68,
     height: 68,
@@ -593,6 +853,9 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 16,
     marginBottom: 8,
+  },
+  uploadingSpinner: {
+    marginRight: 8,
   },
   statusText: {
     fontSize: 14,
@@ -633,5 +896,3 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
 });
-
-

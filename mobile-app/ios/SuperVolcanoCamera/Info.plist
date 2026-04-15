@@ -58,14 +58,21 @@
     <string>SuperVolcano uses Bluetooth to connect to your GoPro camera</string>
     <key>NSCameraUsageDescription</key>
     <string>Allow SuperVolcano to access your camera to record videos.</string>
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>Allow $(PRODUCT_NAME) to access your location</string>
+    <key>NSLocationAlwaysUsageDescription</key>
+    <string>Allow $(PRODUCT_NAME) to access your location</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>SuperVolcano uses your location to auto-fill your property address</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>This app needs microphone access to record videos with audio.</string>
+    <string>SuperVolcano needs microphone access to record audio</string>
     <key>RCTNewArchEnabled</key>
     <true/>
     <key>UIBackgroundModes</key>
     <array>
       <string>bluetooth-central</string>
       <string>fetch</string>
+      <string>processing</string>
       <string>bluetooth-peripheral</string>
     </array>
     <key>UILaunchStoryboardName</key>

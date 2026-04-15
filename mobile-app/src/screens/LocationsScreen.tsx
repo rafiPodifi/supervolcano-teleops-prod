@@ -142,10 +142,7 @@ export default function LocationsScreen({ navigation }: any) {
 
   const handleLocationPress = (location: Location) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    navigation.navigate('Camera', {
-      locationId: location.id,
-      address: location.address,
-    });
+    navigation.navigate('JobSelect', { location });
   };
 
   const getGreeting = (): string => {

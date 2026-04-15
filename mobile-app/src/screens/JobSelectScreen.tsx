@@ -99,7 +99,15 @@ export default function JobSelectScreen({ route, navigation }: any) {
                 <TouchableOpacity
                   key={job.id}
                   style={[styles.jobCard, { marginTop: index === 0 ? 0 : Spacing.md }]}
-                  onPress={() => navigation.navigate('Camera', { location, job })}
+                  onPress={() =>
+                    navigation.navigate('Camera', {
+                      locationId: location.id,
+                      locationName: location.name ?? 'Unknown Location',
+                      address: location.address,
+                      jobId: job.id,
+                      jobTitle: job.title,
+                    })
+                  }
                   activeOpacity={0.7}
                 >
                   <View style={styles.jobContent}>
@@ -325,4 +333,3 @@ const styles = StyleSheet.create({
     color: Colors.primary,
   },
 });
-

@@ -1,8 +1,9 @@
 import { firestore } from '../config/firebase';
 import { collection, getDocs, query, where, doc, getDoc, or } from 'firebase/firestore';
 import { Location, Job } from '../types';
+import { getApiBaseUrl } from './api-base';
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
+const API_BASE_URL = getApiBaseUrl();
 
 /**
  * Fetch assigned location IDs for a user
@@ -318,4 +319,3 @@ export async function saveMediaMetadata(data: {
     throw error;
   }
 }
-
