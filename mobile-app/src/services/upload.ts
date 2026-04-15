@@ -131,8 +131,7 @@ function emitStage(
 export async function getVideoMetadata(videoUri: string): Promise<{ durationSeconds: number; fileSize: number }> {
   try {
     console.log('📹 Getting video metadata for:', videoUri);
-    
-    // Get file size - try FileSystem first, fallback to blob
+
     let fileSize = 0;
     try {
       const fileInfo = await FileSystem.getInfoAsync(videoUri);
@@ -140,18 +139,13 @@ export async function getVideoMetadata(videoUri: string): Promise<{ durationSeco
         fileSize = fileInfo.size;
       }
     } catch (error) {
-      // If FileSystem fails, we'll get size from blob later
       console.log('⚠️ Could not get file size from FileSystem');
     }
     console.log('📹 File size:', fileSize, 'bytes');
-    
-    // Get video duration - expo-av doesn't have a simple API for this
-    // We'll use a workaround with a temporary Video component or skip it
-    // For now, we'll skip duration detection and set to 0
-    // TODO: Implement proper duration detection if needed
+
     let durationSeconds = 0;
     console.log('📹 Video duration: Not detected (will be 0)');
-    
+
     return { durationSeconds, fileSize };
   } catch (error) {
     console.error('❌ Failed to get video metadata:', error);
@@ -177,7 +171,7 @@ export async function uploadVideoToFirebase(
   console.log('Video URI:', normalizedVideoUri);
   console.log('Location ID:', locationId);
   console.log('Job ID:', jobId);
-  
+
   try {
     // Step 1: Validate file and collect local metadata
     console.log('\n📦 Step 1: Validating local video file...');
@@ -196,7 +190,7 @@ export async function uploadVideoToFirebase(
     }
     let durationSeconds = 0;
     const contentType = 'video/mp4';
-    
+
     // Step 2: Create storage destination
     console.log('\n☁️ Step 2: Creating storage destination...');
     const timestamp = Date.now();
@@ -205,19 +199,18 @@ export async function uploadVideoToFirebase(
     const bucket = getStorageBucket();
     console.log('Storage path:', storagePath);
     console.log('Storage bucket:', bucket);
-    
-    // Verify storage is initialized
+
     if (!storage) {
       throw new Error('Firebase Storage is not initialized');
     }
     console.log('Storage instance:', storage ? 'EXISTS' : 'MISSING');
     console.log('Storage app:', storage.app.name);
-    
+
     const storageRef = ref(storage, storagePath);
     console.log('Storage ref created');
     console.log('Storage ref fullPath:', storageRef.fullPath);
     console.log('Storage ref bucket:', storageRef.bucket);
-    
+
     // Step 3: Start resumable upload session
     console.log('\n🚀 Step 3: Starting Firebase resumable upload session...');
     emitStage(onStage, 'start_resumable', 'Starting Firebase resumable upload session', storagePath);
@@ -284,7 +277,6 @@ export async function deleteLocalVideo(videoUri: string) {
     await FileSystem.deleteAsync(videoUri, { idempotent: true });
     console.log('Deleted local video:', videoUri);
   } catch (error) {
-    // Silently fail - file might already be deleted or not accessible
     console.log('Note: Could not delete local video (may already be deleted)');
   }
 }

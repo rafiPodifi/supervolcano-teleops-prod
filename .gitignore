@@ -1,6 +1,9 @@
 # dependencies
 node_modules/
 
+.ai-codex/
+.claude/
+
 # build artifacts
 .next/
 out/

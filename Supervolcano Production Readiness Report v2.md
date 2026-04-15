@@ -72,15 +72,15 @@ These seven issues are serious risks that should be fixed before or immediately 
 | Done | \# | Issue & Plain-English Explanation | Where in the Code |
 | :---- | :---- | :---- | :---- |
 | [ ] | **5** | **No crash or error reporting** When the app crashes in the field, the engineering team has no way of knowing. Integrating a crash reporting tool (such as Sentry or Firebase Crashlytics) is essential before workers depend on the app daily. | *App.tsx :32–35* |
-| [ ] | **6** | **Camera status check runs in an aggressive loop** The app checks camera status every 50 milliseconds in a tight loop, wasting battery and CPU. It should listen for camera status events instead. | *useExternalCameraDiagnostics.ts :253–271* |
+| [x] | **6** | **Camera status check runs in an aggressive loop** The app checks camera status every 50 milliseconds in a tight loop, wasting battery and CPU. It should listen for camera status events instead. | *useExternalCameraDiagnostics.ts :253–271* |
 | [ ] | **7** | **Mode-switch during recording can hang indefinitely** When switching camera modes while recording, the app can wait forever for the camera with no feedback to the worker and no way to recover. | *MemberRecordScreen.tsx :386–401* |
 | [ ] | **8** | **Automatic inactivity shut-off (NEW — from April 13 meeting)** To prevent workers accidentally leaving a recording running, the app should automatically stop recording after 15 minutes of no activity. The default duration should be configurable remotely. | *MemberRecordScreen.tsx (new)* |
 | [ ] | **9** | **Video file has no file extension** Recorded video files are saved without the .mp4 extension, which can cause problems when uploading or playing back the file. | *MemberRecordScreen.tsx :239* |
 | [ ] | **10** | **Stopping a recording that never started causes confusion** If the app tries to stop a recording that was never started, it incorrectly marks itself as not recording, hiding the true session state. | *MemberRecordScreen.tsx :281–300* |
 | [ ] | **11** | **Remove GoPro provider code (from April 13 meeting)** There is leftover GoPro integration code no longer in use. The team agreed it should be removed to keep the codebase clean. | *App.tsx* |
-| [ ] | **12** | **Uploads restart after reconnection (from April 13 meeting)** If a worker loses internet mid-upload and reconnects, the upload should automatically restart. The team confirmed this will definitely happen in the field. | *upload-queue.service.ts* |
+| [x] | **12** | **Uploads restart after reconnection (from April 13 meeting)** If a worker loses internet mid-upload and reconnects, the upload should automatically restart. The team confirmed this will definitely happen in the field. | *upload-queue.service.ts* |
 | [ ] | **13** | **Offline recording mode (NEW — from April 13 meeting)** Workers without internet cannot see their assigned tasks. A 'generic record session' feature will allow recording without a task, with location tagging at upload time. This should be available even when online. Aulia will prepare a mockup before development. | *New feature* |
-| [ ] | **14** | **Recording quality hardcoded** Camera quality and audio settings are fixed in the code. These should be adjustable without releasing a new app version. | *MemberRecordScreen.tsx :256–258* |
+| [x] | **14** | **Recording quality hardcoded** Camera quality and audio settings are fixed in the code. These should be adjustable without releasing a new app version. | *MemberRecordScreen.tsx :256–258* |
 | [ ] | **15** | **Reward thresholds hardcoded** The hours required to earn rewards are fixed in the code and should be adjustable remotely. | *MemberRecordScreen.tsx :48* |
 
   **P2 — Medium Priority**  

@@ -38,6 +38,8 @@ export type ExternalCameraDiagnostics = {
     expectedStates: ExternalCameraSessionState[],
     timeoutMs?: number
   ) => Promise<boolean>;
+  isConnectionTimedOut: boolean;
+  resetConnectionTimeout: () => void;
   simulationControls: ExternalCameraSimulationControls | null;
 };
 
@@ -162,6 +164,7 @@ export function useExternalCameraDiagnostics(): ExternalCameraDiagnostics {
         }
   );
   const [cameraErrorMessage, setCameraErrorMessage] = useState<string | null>(null);
+  const [isConnectionTimedOut, setIsConnectionTimedOut] = useState(false);
   const [simulatedState, setSimulatedState] = useState<Exclude<
     ExternalCameraSupportState,
     'unknown'
@@ -237,39 +240,54 @@ export function useExternalCameraDiagnostics(): ExternalCameraDiagnostics {
     }
   }, [isSupported, simulatedState]);
 
+  const resetConnectionTimeout = useCallback(() => {
+    setIsConnectionTimedOut(false);
+  }, []);
+
   const waitForSessionState = useCallback(
-    async (
+    (
       expectedStates: ExternalCameraSessionState[],
       timeoutMs: number = 1500
     ): Promise<boolean> => {
       if (simulatedState) {
-        return expectedStates.includes(createSimulatedStatus(simulatedState).sessionState ?? 'inactive');
+        return Promise.resolve(
+          expectedStates.includes(createSimulatedStatus(simulatedState).sessionState ?? 'inactive')
+        );
       }
 
       if (!isSupported) {
-        return expectedStates.includes('inactive');
+        return Promise.resolve(expectedStates.includes('inactive'));
       }
 
-      const deadline = Date.now() + timeoutMs;
-      while (Date.now() <= deadline) {
-        try {
-          const status = await ExternalCamera.getStatus();
-          setNativeStatus(status);
-          const sessionState = status.sessionState ?? 'inactive';
-          if (expectedStates.includes(sessionState)) {
-            return true;
+      // Check current state first — may already be satisfied
+      const current = nativeStatus.sessionState ?? 'inactive';
+      if (expectedStates.includes(current)) {
+        return Promise.resolve(true);
+      }
+
+      return new Promise<boolean>((resolve) => {
+        const timer = setTimeout(() => {
+          cleanup();
+          setIsConnectionTimedOut(true);
+          resolve(false);
+        }, timeoutMs);
+
+        const sub = ExternalCamera.addSessionStateListener((event) => {
+          const state = event.sessionState ?? 'inactive';
+          if (expectedStates.includes(state)) {
+            cleanup();
+            setIsConnectionTimedOut(false);
+            resolve(true);
           }
-        } catch (error) {
-          console.warn('[ExternalCamera] Failed to poll session state', error);
-          return false;
+        });
+
+        function cleanup() {
+          clearTimeout(timer);
+          sub?.remove();
         }
-
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
-
-      return false;
+      });
     },
-    [isSupported, simulatedState]
+    [isSupported, simulatedState, nativeStatus]
   );
 
   useEffect(() => {
@@ -335,6 +353,9 @@ export function useExternalCameraDiagnostics(): ExternalCameraDiagnostics {
       if (hasNativeLivePreview(status) || status.state !== 'temporarily_unavailable') {
         setCameraErrorMessage(null);
       }
+      if (status.state === 'ready') {
+        setIsConnectionTimedOut(false);
+      }
     });
 
     const sessionStateSubscription = ExternalCamera.addSessionStateListener((event) => {
@@ -388,10 +409,12 @@ export function useExternalCameraDiagnostics(): ExternalCameraDiagnostics {
     canSwitchToExternal,
     isReady,
     isSimulated,
+    isConnectionTimedOut,
     openSettings,
     refresh,
     retryPreview,
     ensureExternalCameraSelected,
+    resetConnectionTimeout,
     waitForSessionState,
     simulationControls,
   };

@@ -39,6 +39,7 @@ import ExternalCameraPanel from '../../components/external-camera/ExternalCamera
 import { getExternalCameraDisplayState } from '../../components/external-camera/external-camera-display';
 import ExternalCameraView from '../../components/external-camera/ExternalCameraView';
 import { useExternalCameraDiagnostics } from '../../hooks/useExternalCameraDiagnostics';
+import { useRecordingConfig } from '../../hooks/useRecordingConfig';
 import { ExternalCamera } from '../../native/external-camera';
 import { normalizeLocalFileUri } from '../../utils/local-file-uri';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -67,11 +68,13 @@ export default function MemberRecordScreen() {
   const [isModeTransitioning, setIsModeTransitioning] = useState(false);
   const [nativeCameraMountKey, setNativeCameraMountKey] = useState(0);
   const externalCamera = useExternalCameraDiagnostics();
+  const recordingConfig = useRecordingConfig();
   const isExternalMode = cameraMode === 'external';
   const isExternalReady = isExternalMode && externalCamera.isReady;
   const isNativeCameraActive = cameraMode === 'native';
   const showExternalToggle = externalCamera.isSupported;
   const isExternalModeRef = useRef(isExternalMode);
+  const isExternalReadyRef = useRef(isExternalReady);
 
   // Permissions
   const { hasPermission: hasCameraPermission, requestPermission: requestCameraPermission } = useCameraPermission();
@@ -105,10 +108,19 @@ export default function MemberRecordScreen() {
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const encouragementRef = useRef<NodeJS.Timeout | null>(null);
   const shouldResumeRecordingRef = useRef(false);
+  const isRecordingRef = useRef(isRecording);
 
   useEffect(() => {
     isExternalModeRef.current = isExternalMode;
   }, [isExternalMode]);
+
+  useEffect(() => {
+    isExternalReadyRef.current = isExternalReady;
+  }, [isExternalReady]);
+
+  useEffect(() => {
+    isRecordingRef.current = isRecording;
+  }, [isRecording]);
 
   useEffect(() => {
     if (!ExternalCamera.isSupported) {
@@ -220,6 +232,30 @@ export default function MemberRecordScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!ExternalCamera.isSupported) {
+      return;
+    }
+
+    const subscription = ExternalCamera.addUsbDetachListener(() => {
+      if (!isExternalModeRef.current) {
+        return;
+      }
+
+      if (isRecordingRef.current) {
+        stopRecording(false);
+        Alert.alert(
+          'Camera Disconnected',
+          'Your camera was unplugged. The session has been saved. Reconnect the camera and start a new session.'
+        );
+      }
+    });
+
+    return () => {
+      subscription?.remove();
+    };
+  }, []);
+
   const ensureExternalRecordingDirectory = useCallback(async (): Promise<string> => {
     const baseDir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
     if (!baseDir) {
@@ -244,23 +280,32 @@ export default function MemberRecordScreen() {
     try {
       resetMilestones();
       setElapsedSeconds(0);
-      setIsRecording(true);
 
       if (isExternalModeRef.current) {
         if (!ExternalCamera.isSupported) {
           throw new Error('External camera not supported');
         }
 
+        if (!isExternalReadyRef.current) {
+          Alert.alert(
+            'Camera Not Ready',
+            'External camera is still initialising. Please wait a moment and try again.'
+          );
+          return;
+        }
+
+        setIsRecording(true);
         const outputPath = await createExternalRecordingPath();
         await ExternalCamera.startRecording(outputPath, {
-          enableAudio: false,
-          quality: 'hd',
+          enableAudio: recordingConfig.externalCamera.enableAudio,
+          quality: recordingConfig.externalCamera.quality,
         });
         return;
       }
 
       if (!cameraRef.current) return;
 
+      setIsRecording(true);
       cameraRef.current.startRecording({
         onRecordingFinished: (video) => {
           console.log('[MemberRecord] Video saved:', video.path);
@@ -272,6 +317,7 @@ export default function MemberRecordScreen() {
         fileType: 'mp4',
       });
     } catch (error) {
+      setIsRecording(false);
       console.error('[MemberRecord] Start error:', error);
     }
   }, [createExternalRecordingPath, resetMilestones]);
@@ -417,6 +463,9 @@ export default function MemberRecordScreen() {
     }
 
     if (isExternalMode) {
+      if (externalCamera.isConnectionTimedOut) {
+        return "Camera couldn't connect. Try unplugging and reconnecting.";
+      }
       return externalDisplay.footerMessage;
     }
 
@@ -527,8 +576,8 @@ export default function MemberRecordScreen() {
           device={device}
           isActive={isNativeCameraActive}
           video={true}
-          audio={true}
-          zoom={0.5}
+          audio={recordingConfig.nativeCamera.enableAudio}
+          zoom={recordingConfig.nativeCamera.zoom}
         />
       )}
 
@@ -645,6 +694,19 @@ export default function MemberRecordScreen() {
             {getStatusMessage()}
           </Text>
         </View>
+
+        {/* Camera connection timeout retry */}
+        {isExternalMode && externalCamera.isConnectionTimedOut && (
+          <TouchableOpacity
+            style={styles.retryButton}
+            onPress={async () => {
+              externalCamera.resetConnectionTimeout();
+              await externalCamera.retryPreview();
+            }}
+          >
+            <Text style={styles.retryButtonText}>Retry Connection</Text>
+          </TouchableOpacity>
+        )}
 
         {/* Encouragement */}
         {isRecording && (
@@ -881,6 +943,20 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.7)',
     textAlign: 'center',
     paddingHorizontal: 20,
+  },
+  retryButton: {
+    marginTop: 12,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.4)',
+  },
+  retryButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
   },
   mascotWitness: {
     position: 'absolute',

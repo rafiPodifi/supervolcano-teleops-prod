@@ -76,7 +76,9 @@
         {
           "locationWhenInUsePermission": "SuperVolcano uses your location to auto-fill your property address"
         }
-      ]
+      ],
+      "expo-background-fetch",
+      "expo-task-manager"
     ],
     "extra": {
       "eas": {
