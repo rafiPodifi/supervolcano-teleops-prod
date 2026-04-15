@@ -6,9 +6,25 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
+import NetInfo from '@react-native-community/netinfo';
+import * as BackgroundFetch from 'expo-background-fetch';
+import * as TaskManager from 'expo-task-manager';
 import { UploadedVideoArtifact, VideoUploadService } from './video-upload.service';
 import { normalizeLocalFileUri } from '@/utils/local-file-uri';
 import { UploadDebugLogEntry, UploadLogLevel, UploadStage } from './upload-debug.types';
+
+const UPLOAD_TASK_NAME = 'SUPERVOLCANO_UPLOAD_QUEUE';
+
+// Defined at module level — task callback runs when OS fires the background task.
+// By that time the module is fully loaded and UploadQueueService is available.
+TaskManager.defineTask(UPLOAD_TASK_NAME, async () => {
+  try {
+    await UploadQueueService.processQueue();
+    return BackgroundFetch.BackgroundFetchResult.NewData;
+  } catch {
+    return BackgroundFetch.BackgroundFetchResult.Failed;
+  }
+});
 
 const QUEUE_STORAGE_KEY = '@upload_queue';
 const DEBUG_LOGS_STORAGE_KEY = '@upload_queue_debug_logs';
@@ -69,6 +85,7 @@ class UploadQueueServiceClass {
   private listeners: Set<QueueListener> = new Set();
   private debugListeners: Set<QueueDebugListener> = new Set();
   private retryTimer: ReturnType<typeof setInterval> | null = null;
+  private networkUnsubscribe: (() => void) | null = null;
 
   async initialize(): Promise<void> {
     console.log('[UploadQueue] Initializing...');
@@ -81,6 +98,14 @@ class UploadQueueServiceClass {
     this.notifyListeners();
     void this.processQueue();
 
+    BackgroundFetch.registerTaskAsync(UPLOAD_TASK_NAME, {
+      minimumInterval: 60,    // seconds; OS may call more or less frequently
+      stopOnTerminate: false, // Android: keep registered after app is closed
+      startOnBoot: true,      // Android: re-register after device restart
+    }).catch(() => {
+      // Silently ignore — task already registered or platform unsupported
+    });
+
     console.log('[UploadQueue] Initialized with', this.queue.length, 'pending uploads');
   }
 
@@ -91,6 +116,9 @@ class UploadQueueServiceClass {
       clearInterval(this.retryTimer);
       this.retryTimer = null;
     }
+    this.networkUnsubscribe?.();
+    this.networkUnsubscribe = null;
+    BackgroundFetch.unregisterTaskAsync(UPLOAD_TASK_NAME).catch(() => {});
   }
 
   subscribe(listener: QueueListener): () => void {
@@ -551,19 +579,25 @@ class UploadQueueServiceClass {
   }
 
   private startNetworkMonitoring(): void {
-    this.isOnline = true;
-
-    if (this.retryTimer) {
+    if (this.networkUnsubscribe) {
       return;
     }
 
-    this.retryTimer = setInterval(() => {
-      if (this.queue.some(v => v.status === 'pending' || v.status === 'failed')) {
-        this.appendGlobalLog('info', 'Periodic retry check fired');
-        this.isOnline = true;
+    // Seed the initial connectivity state
+    NetInfo.fetch().then((state) => {
+      this.isOnline = state.isConnected ?? true;
+    });
+
+    this.networkUnsubscribe = NetInfo.addEventListener((state) => {
+      const nowOnline = state.isConnected ?? true;
+      const wasOffline = !this.isOnline;
+      this.isOnline = nowOnline;
+
+      if (nowOnline && wasOffline) {
+        this.appendGlobalLog('info', 'Network reconnected — resuming upload queue');
         void this.processQueue();
       }
-    }, 30000);
+    });
   }
 
   private createLog(

@@ -50,6 +50,23 @@ export type ExternalCameraStatus = {
   externalModeEnabled?: boolean;
   sessionState?: ExternalCameraSessionState | null;
   previewSurfaceAttached?: boolean;
+  deviceKey?: string | null;
+  selectedProfile?: {
+    width: number;
+    height: number;
+    format: 'mjpeg' | 'yuyv';
+  } | null;
+  attemptedProfiles?: Array<{
+    profile: {
+      width: number;
+      height: number;
+      format: 'mjpeg' | 'yuyv';
+    };
+    result: 'success' | 'failed';
+    failureReason?: string | null;
+  }>;
+  lastFailureReason?: string | null;
+  compatibilityMode?: 'legacy_fixed' | 'adaptive' | null;
 };
 
 export type RecordingStateEvent = {
@@ -122,6 +139,11 @@ export const ExternalCamera = {
         externalModeEnabled: false,
         sessionState: null,
         previewSurfaceAttached: false,
+        deviceKey: null,
+        selectedProfile: null,
+        attemptedProfiles: [],
+        lastFailureReason: null,
+        compatibilityMode: null,
       };
     }
     return NativeExternalCameraModule.getStatus();
