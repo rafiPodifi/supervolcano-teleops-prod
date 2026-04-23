@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import {
   ScrollView,
   StyleSheet,
@@ -9,6 +9,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useUploadQueueDebug } from '@/hooks/useUploadQueueDebug';
+import { getFriendlyErrorCopy } from '@/utils/user-facing-error';
 
 function formatDateTime(value: string) {
   const date = new Date(value);
@@ -20,12 +21,14 @@ function formatDateTime(value: string) {
 
 export default function UploadQueueScreen({ navigation }: any) {
   const queue = useUploadQueueDebug();
-  const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
-  const [showGlobalLogs, setShowGlobalLogs] = useState(false);
 
   const summaryText = useMemo(() => {
     if (queue.status.total === 0) {
       return 'No queued uploads';
+    }
+
+    if (queue.status.needsAssignment > 0) {
+      return `${queue.status.needsAssignment} need assignment, ${queue.status.pending} ready`;
     }
 
     if (queue.status.failed > 0) {
@@ -59,6 +62,10 @@ export default function UploadQueueScreen({ navigation }: any) {
         <View style={styles.summaryCard}>
           <Text style={styles.summaryValue}>{queue.status.total}</Text>
           <Text style={styles.summaryLabel}>Queued</Text>
+        </View>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryValue}>{queue.status.needsAssignment}</Text>
+          <Text style={styles.summaryLabel}>Assign</Text>
         </View>
         <View style={styles.summaryCard}>
           <Text style={styles.summaryValue}>{queue.status.uploading}</Text>
@@ -98,54 +105,17 @@ export default function UploadQueueScreen({ navigation }: any) {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <TouchableOpacity
-          style={styles.globalLogsHeader}
-          onPress={() => setShowGlobalLogs((value) => !value)}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.sectionTitle}>Recent service logs</Text>
-          <Ionicons
-            name={showGlobalLogs ? 'chevron-up' : 'chevron-down'}
-            size={18}
-            color="#9fb3ff"
-          />
-        </TouchableOpacity>
-
-        {showGlobalLogs && (
-          <View style={styles.globalLogsPanel}>
-            {queue.logs.length === 0 ? (
-              <Text style={styles.emptyText}>No queue logs yet.</Text>
-            ) : (
-              queue.logs.slice(0, 20).map((log) => (
-                <View key={log.id} style={styles.logRow}>
-                  <Text style={styles.logTimestamp}>{formatDateTime(log.timestamp)}</Text>
-                  <Text style={[styles.logMessage, log.level === 'error' && styles.logMessageError]}>
-                    {log.stage ? `[${log.stage}] ` : ''}
-                    {log.message}
-                  </Text>
-                  {log.details ? <Text style={styles.logDetails}>{log.details}</Text> : null}
-                </View>
-              ))
-            )}
-          </View>
-        )}
-
         <Text style={styles.sectionTitle}>Queued videos</Text>
         {queue.items.length === 0 ? (
           <View style={styles.emptyPanel}>
             <Text style={styles.emptyTitle}>Nothing in the queue</Text>
-            <Text style={styles.emptyText}>New recordings will appear here with stage logs.</Text>
+            <Text style={styles.emptyText}>New recordings will appear here while they are saved or uploading.</Text>
           </View>
         ) : (
           queue.items.map((item) => {
-            const expanded = expandedItemId === item.id;
             return (
               <View key={item.id} style={styles.itemCard}>
-                <TouchableOpacity
-                  style={styles.itemHeader}
-                  onPress={() => setExpandedItemId(expanded ? null : item.id)}
-                  activeOpacity={0.85}
-                >
+                <View style={styles.itemHeader}>
                   <View style={styles.itemHeaderText}>
                     <Text style={styles.itemTitle}>{item.jobTitle}</Text>
                     <Text style={styles.itemMeta}>
@@ -154,45 +124,26 @@ export default function UploadQueueScreen({ navigation }: any) {
                     <Text style={styles.itemMeta}>Progress {item.progress}% • Retries {item.retryCount}</Text>
                     <Text style={styles.itemMeta}>Updated {formatDateTime(item.updatedAt)}</Text>
                   </View>
-                  <Ionicons
-                    name={expanded ? 'chevron-up' : 'chevron-down'}
-                    size={18}
-                    color="#c6d4ff"
-                  />
-                </TouchableOpacity>
+                  <Ionicons name="cloud-upload-outline" size={18} color="#c6d4ff" />
+                </View>
 
                 {item.lastError ? (
                   <View style={styles.errorBanner}>
-                    <Text style={styles.errorText}>{item.lastError}</Text>
+                    <Text style={styles.errorText}>
+                      {getFriendlyErrorCopy(item.lastError, 'upload').message}
+                    </Text>
                   </View>
                 ) : null}
 
-                <View style={styles.itemActions}>
-                  <TouchableOpacity
-                    style={styles.inlineActionButton}
-                    onPress={() => queue.retryItem(item.id)}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={styles.inlineActionText}>Retry now</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {expanded && (
-                  <View style={styles.itemLogs}>
-                    {item.logs.length === 0 ? (
-                      <Text style={styles.emptyText}>No logs recorded for this item.</Text>
-                    ) : (
-                      item.logs.map((log) => (
-                        <View key={log.id} style={styles.logRow}>
-                          <Text style={styles.logTimestamp}>{formatDateTime(log.timestamp)}</Text>
-                          <Text style={[styles.logMessage, log.level === 'error' && styles.logMessageError]}>
-                            {log.stage ? `[${log.stage}] ` : ''}
-                            {log.message}
-                          </Text>
-                          {log.details ? <Text style={styles.logDetails}>{log.details}</Text> : null}
-                        </View>
-                      ))
-                    )}
+                {item.status === 'failed' && (
+                  <View style={styles.itemActions}>
+                    <TouchableOpacity
+                      style={styles.inlineActionButton}
+                      onPress={() => queue.retryItem(item.id)}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={styles.inlineActionText}>Retry now</Text>
+                    </TouchableOpacity>
                   </View>
                 )}
               </View>
@@ -321,20 +272,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingBottom: 40,
   },
-  globalLogsHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  globalLogsPanel: {
-    borderRadius: 16,
-    padding: 12,
-    backgroundColor: '#0b182d',
-    borderWidth: 1,
-    borderColor: '#163050',
-    marginBottom: 18,
-  },
   sectionTitle: {
     fontSize: 16,
     fontWeight: '700',
@@ -413,33 +350,5 @@ const styles = StyleSheet.create({
     color: '#dce6ff',
     fontSize: 13,
     fontWeight: '700',
-  },
-  itemLogs: {
-    marginTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#173156',
-    paddingTop: 12,
-  },
-  logRow: {
-    marginBottom: 10,
-  },
-  logTimestamp: {
-    fontSize: 11,
-    color: '#6f8baa',
-    marginBottom: 2,
-  },
-  logMessage: {
-    fontSize: 13,
-    lineHeight: 18,
-    color: '#dce6ff',
-  },
-  logMessageError: {
-    color: '#ffd6dd',
-  },
-  logDetails: {
-    marginTop: 3,
-    fontSize: 12,
-    lineHeight: 17,
-    color: '#8aa3c0',
   },
 });

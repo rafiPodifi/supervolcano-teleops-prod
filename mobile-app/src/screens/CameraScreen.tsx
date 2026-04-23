@@ -42,6 +42,7 @@ import { useToast } from '@/hooks/useToast';
 import { useExternalCameraDiagnostics } from '@/hooks/useExternalCameraDiagnostics';
 import { ExternalCamera } from '@/native/external-camera';
 import { normalizeLocalFileUri } from '@/utils/local-file-uri';
+import { getFriendlyErrorCopy } from '@/utils/user-facing-error';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 
@@ -51,6 +52,7 @@ type LensType = 'ultra-wide' | 'wide' | 'telephoto';
 
 export default function CameraScreen({ route, navigation }: any) {
   const params = route.params || {};
+  const isGenericRecording = Boolean(params.genericRecording);
   const locationId = params.locationId ?? params.location?.id;
   const locationName = params.locationName ?? params.location?.name ?? 'Unknown Location';
   const address = params.address ?? params.location?.address ?? '';
@@ -135,6 +137,7 @@ export default function CameraScreen({ route, navigation }: any) {
   const segmentTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const appState = useRef(AppState.currentState);
   const shouldResumeSessionRef = useRef(false);
+  const shouldReturnAfterStopRef = useRef(false);
   const currentSegmentRef = useRef<{
     segmentNumber: number;
     startedAt: string;
@@ -245,7 +248,9 @@ export default function CameraScreen({ route, navigation }: any) {
 
   // Track uploads and show success toast
   const prevTotal = useRef(0);
+  const prevFailedCount = useRef(0);
   const hasRecordedRef = useRef(false);
+  const hasObservedFailedUploadsRef = useRef(false);
 
   useEffect(() => {
     if (segmentsRecorded > 0) {
@@ -263,6 +268,20 @@ export default function CameraScreen({ route, navigation }: any) {
 
     prevTotal.current = uploadQueue.total;
   }, [uploadQueue.total, uploadQueue.uploading, segmentsRecorded, showToast]);
+
+  useEffect(() => {
+    if (!hasObservedFailedUploadsRef.current) {
+      hasObservedFailedUploadsRef.current = true;
+      prevFailedCount.current = uploadQueue.failed;
+      return;
+    }
+
+    if (uploadQueue.failed > prevFailedCount.current) {
+      showToast('Upload failed. Open Failed uploads to retry or delete.', 'error');
+    }
+
+    prevFailedCount.current = uploadQueue.failed;
+  }, [showToast, uploadQueue.failed]);
 
   // Format time as MM:SS or HH:MM:SS
   const formatTime = (seconds: number): string => {
@@ -287,6 +306,8 @@ export default function CameraScreen({ route, navigation }: any) {
       ? addr.substring(0, maxLength) + '...'
       : addr;
   };
+  const headerLabel = isGenericRecording ? 'Generic recording' : truncateAddress(address);
+  const canOpenQueueDetails = uploadQueue.failed > 0 || uploadQueue.needsAssignment > 0;
 
   const ensureExternalRecordingDirectory = useCallback(async (): Promise<string> => {
     const baseDir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
@@ -388,7 +409,12 @@ export default function CameraScreen({ route, navigation }: any) {
   ): Promise<boolean> {
     const segment = currentSegmentRef.current;
 
-    if (!videoUri || !user || !segment || !locationId || !jobId) {
+    if (
+      !videoUri ||
+      !user ||
+      !segment ||
+      (!isGenericRecording && (!locationId || !jobId))
+    ) {
       console.warn('[Camera] Missing job or segment metadata, skipping queue');
       if (cameraMode === 'external') {
         UploadQueueService.logDebug(
@@ -400,6 +426,7 @@ export default function CameraScreen({ route, navigation }: any) {
             hasSegment: !!segment,
             hasLocationId: !!locationId,
             hasJobId: !!jobId,
+            isGenericRecording,
           }),
           'failed'
         );
@@ -412,13 +439,14 @@ export default function CameraScreen({ route, navigation }: any) {
 
     try {
       await UploadQueueService.addToQueue(videoUri, {
-        locationId,
-        locationName,
-        jobId,
-        jobTitle,
+        locationId: isGenericRecording ? undefined : locationId,
+        locationName: isGenericRecording ? undefined : locationName,
+        jobId: isGenericRecording ? undefined : jobId,
+        jobTitle: isGenericRecording ? 'Generic recording' : jobTitle,
         segmentNumber: segment.segmentNumber,
         startedAt: segment.startedAt,
         endedAt: new Date().toISOString(),
+        recordingMode: isGenericRecording ? 'generic' : 'assigned',
       });
       if (cameraMode === 'external') {
         UploadQueueService.logDebug(
@@ -438,16 +466,17 @@ export default function CameraScreen({ route, navigation }: any) {
           'failed'
         );
       }
-      Alert.alert(
-        'Upload Queue Error',
-        'This segment could not be saved for background upload.'
-      );
+      const friendly = getFriendlyErrorCopy(error, 'queue');
+      Alert.alert(friendly.title, friendly.message);
       return false;
     }
 
     if (sessionActiveRef.current) {
       console.log('[Camera] Starting next segment...');
       await startRecordingSegmentRef.current?.();
+    } else if (isGenericRecording && shouldReturnAfterStopRef.current) {
+      shouldReturnAfterStopRef.current = false;
+      navigation.goBack();
     }
 
     return true;
@@ -572,9 +601,7 @@ export default function CameraScreen({ route, navigation }: any) {
             rejectExternalFinalizeWait('External recording finished, but queueing failed.');
           }
         } catch (error: any) {
-          rejectExternalFinalizeWait(
-            error?.message || 'External recording finished, but queueing failed.'
-          );
+          rejectExternalFinalizeWait('External recording finished, but queueing failed.');
         }
       } else {
         rejectExternalFinalizeWait('External recording finalized without a file path.');
@@ -689,7 +716,7 @@ export default function CameraScreen({ route, navigation }: any) {
   // Start recording session
   const startSession = useCallback(async () => {
     console.log('[Camera] Starting session...');
-    if (!user || !locationId || !jobId) {
+    if (!user || (!isGenericRecording && (!locationId || !jobId))) {
       Alert.alert('Unable to Start', 'Missing location or job details for this recording session.');
       return;
     }
@@ -697,6 +724,7 @@ export default function CameraScreen({ route, navigation }: any) {
     try {
       currentSegmentRef.current = null;
       segmentCounterRef.current = 0;
+      shouldReturnAfterStopRef.current = false;
 
       setIsSessionActive(true);
       sessionActiveRef.current = true;
@@ -708,15 +736,17 @@ export default function CameraScreen({ route, navigation }: any) {
       console.error('[Camera] Failed to start session:', error);
       currentSegmentRef.current = null;
       segmentCounterRef.current = 0;
-      Alert.alert('Unable to Start Recording', error?.message || 'Failed to start recording.');
+      const friendly = getFriendlyErrorCopy(error, 'recording');
+      Alert.alert(friendly.title, friendly.message);
     }
-  }, [jobId, locationId, startRecordingSegment, user]);
+  }, [isGenericRecording, jobId, locationId, startRecordingSegment, user]);
 
   // Stop recording session
   const stopSession = useCallback(async () => {
     console.log('[Camera] Stopping session...');
     setIsSessionActive(false);
     sessionActiveRef.current = false;
+    shouldReturnAfterStopRef.current = isGenericRecording;
 
     if (segmentTimeoutRef.current) {
       clearTimeout(segmentTimeoutRef.current);
@@ -746,7 +776,7 @@ export default function CameraScreen({ route, navigation }: any) {
     }
 
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  }, [clearExternalFinalizeWait, ensureExternalFinalizeWait, isRecording]);
+  }, [clearExternalFinalizeWait, ensureExternalFinalizeWait, isGenericRecording, isRecording]);
 
   // Handle record button press
   const handleRecordPress = () => {
@@ -755,10 +785,8 @@ export default function CameraScreen({ route, navigation }: any) {
     }
     if (isSessionActive) {
       void stopSession().catch((error: any) => {
-        Alert.alert(
-          'Could Not Finish Recording',
-          error?.message || 'The recording could not be finalized for upload.'
-        );
+        const friendly = getFriendlyErrorCopy(error, 'upload');
+        Alert.alert(friendly.title, friendly.message);
       });
       return;
     }
@@ -777,7 +805,9 @@ export default function CameraScreen({ route, navigation }: any) {
     if (isSessionActive) {
       Alert.alert(
         'Stop Recording?',
-        'This will end your session. All recorded segments are saved locally and will upload automatically.',
+        isGenericRecording
+          ? 'This will end your session. The recording will stay on the device until you assign a location and task.'
+          : 'This will end your session. All recorded segments are saved locally and will upload automatically.',
         [
           { text: 'Cancel', style: 'cancel' },
           {
@@ -788,10 +818,8 @@ export default function CameraScreen({ route, navigation }: any) {
                 await stopSession();
                 navigation.goBack();
               } catch (error: any) {
-                Alert.alert(
-                  'Could Not Finish Recording',
-                  error?.message || 'The recording could not be finalized for upload.'
-                );
+                const friendly = getFriendlyErrorCopy(error, 'upload');
+                Alert.alert(friendly.title, friendly.message);
               }
             },
           },
@@ -803,7 +831,14 @@ export default function CameraScreen({ route, navigation }: any) {
   };
 
   const openUploadQueue = () => {
-    navigation.navigate('UploadQueue');
+    if (uploadQueue.failed > 0) {
+      navigation.navigate('FailedUploads');
+      return;
+    }
+    if (uploadQueue.needsAssignment > 0) {
+      navigation.navigate('GenericPendingUploads');
+      return;
+    }
   };
 
   // Handle lens change
@@ -907,16 +942,19 @@ export default function CameraScreen({ route, navigation }: any) {
     }
 
     if (uploadQueue.total > 0) {
+      if (uploadQueue.failed > 0) {
+        return `${uploadQueue.failed} failed • Tap to review`;
+      }
+      if (uploadQueue.needsAssignment > 0) {
+        return `${uploadQueue.needsAssignment} recording${uploadQueue.needsAssignment > 1 ? 's' : ''} need assignment`;
+      }
       if (uploadQueue.isUploading) {
         return `Uploading ${uploadQueue.uploading} of ${uploadQueue.total}...`;
-      }
-      if (uploadQueue.failed > 0) {
-        return `${uploadQueue.failed} failed • Tap to retry`;
       }
       return `${uploadQueue.pending} pending upload${uploadQueue.pending > 1 ? 's' : ''}`;
     }
 
-    return 'Tap to start recording';
+    return isGenericRecording ? 'Tap to start generic recording' : 'Tap to start recording';
   };
 
   // Get lens display text
@@ -1030,7 +1068,7 @@ export default function CameraScreen({ route, navigation }: any) {
   }
 
   // Missing location/user
-  if (!locationId || !user) {
+  if (!user || (!isGenericRecording && (!locationId || !jobId))) {
     return (
       <View style={[styles.permissionContainer, { paddingTop: insets.top }]}>
         <StatusBar
@@ -1041,7 +1079,9 @@ export default function CameraScreen({ route, navigation }: any) {
         <Ionicons name="location-outline" size={64} color="#666" />
         <Text style={styles.permissionTitle}>Missing Information</Text>
         <Text style={styles.permissionText}>
-          Location and job information are required to start recording.
+          {isGenericRecording
+            ? 'Your account information is missing and the session cannot start.'
+            : 'Location and job information are required to start recording.'}
         </Text>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
@@ -1129,7 +1169,7 @@ export default function CameraScreen({ route, navigation }: any) {
               style={styles.locationIcon}
             />
             <Text style={styles.addressText} numberOfLines={1}>
-              {truncateAddress(address)}
+              {headerLabel}
             </Text>
           </View>
 
@@ -1147,9 +1187,10 @@ export default function CameraScreen({ route, navigation }: any) {
           {/* Queue indicator when not recording */}
           {!isSessionActive && uploadQueue.total > 0 && (
             <TouchableOpacity
-              onPress={openUploadQueue}
+              onPress={canOpenQueueDetails ? openUploadQueue : undefined}
               style={styles.queueBadge}
-              activeOpacity={0.8}
+              activeOpacity={canOpenQueueDetails ? 0.8 : 1}
+              disabled={!canOpenQueueDetails}
             >
               <Text style={styles.queueBadgeText}>{uploadQueue.total}</Text>
             </TouchableOpacity>
@@ -1235,8 +1276,9 @@ export default function CameraScreen({ route, navigation }: any) {
         {/* Status text */}
         <TouchableOpacity
           style={styles.statusContainer}
-          onPress={uploadQueue.total > 0 ? openUploadQueue : undefined}
-          activeOpacity={uploadQueue.total > 0 ? 0.7 : 1}
+          onPress={canOpenQueueDetails ? openUploadQueue : undefined}
+          activeOpacity={canOpenQueueDetails ? 0.7 : 1}
+          disabled={!canOpenQueueDetails}
         >
           {(isExternalMode ? externalDisplay.showSpinner : uploadQueue.isUploading) && (
             <ActivityIndicator

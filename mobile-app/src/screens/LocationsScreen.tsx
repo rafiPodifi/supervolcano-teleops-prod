@@ -24,11 +24,15 @@ import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/contexts/AuthContext';
 import { useUploadQueue } from '@/hooks/useUploadQueue';
 import type { Location } from '@/types/user.types';
-import { getAuth } from 'firebase/auth';
+import { fetchAssignedLocationsForCurrentUser } from '@/services/api';
+import { Toast } from '@/components/Toast';
+import { useToast } from '@/hooks/useToast';
+import { getFriendlyErrorCopy } from '@/utils/user-facing-error';
 
 export default function LocationsScreen({ navigation }: any) {
   const { user, signOut } = useAuth();
   const uploadQueue = useUploadQueue();
+  const { toast, showToast, hideToast } = useToast();
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -36,6 +40,8 @@ export default function LocationsScreen({ navigation }: any) {
     videosRecorded: 12,
     thisWeek: 3,
   });
+  const previousFailedCountRef = useRef(0);
+  const hasObservedFailuresRef = useRef(false);
 
   useEffect(() => {
     if (user) {
@@ -44,50 +50,23 @@ export default function LocationsScreen({ navigation }: any) {
   }, [user]);
 
   const loadLocations = async () => {
-    const auth = getAuth();
-    const currentUser = auth.currentUser;
-    if (!currentUser) {
-      console.log('[LocationsScreen] No current user');
-      setLocations([]);
-      setLoading(false);
-      setRefreshing(false);
-      return;
-    }
-
     try {
-      const token = await currentUser.getIdToken();
-      const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://supervolcano-teleops.vercel.app';
-
-      console.log('[LocationsScreen] Fetching assigned locations for user:', currentUser.uid);
-
-      const response = await fetch(`${API_BASE_URL}/api/users/${currentUser.uid}/assigned-locations`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      const data = await response.json();
-      console.log('[LocationsScreen] API response:', data);
-
-      if (data.success && data.assignments) {
-        const locs = data.assignments.map((a: any) => ({
-          id: a.location_id,
-          name: a.location_name || 'Unnamed Location',
-          address: a.location_address || '',
-          organizationId: '',
-          type: 'property' as const,
-          created_at: a.assigned_at ? new Date(a.assigned_at) : new Date(),
-          updated_at: new Date(),
-        }));
-        console.log('[LocationsScreen] Mapped locations:', locs.length);
-        setLocations(locs);
-      } else {
-        console.log('[LocationsScreen] No assignments found');
-        setLocations([]);
-      }
+      const assignedLocations = await fetchAssignedLocationsForCurrentUser();
+      const locs = assignedLocations.map((location) => ({
+        id: location.id,
+        name: location.name || 'Unnamed Location',
+        address: location.address || '',
+        organizationId: '',
+        type: 'property' as const,
+        created_at: new Date(),
+        updated_at: new Date(),
+      }));
+      console.log('[LocationsScreen] Mapped locations:', locs.length);
+      setLocations(locs);
     } catch (error: any) {
       console.error('[LocationsScreen] Error loading locations:', error);
-      Alert.alert('Error', error.message || 'Failed to load locations');
+      const friendly = getFriendlyErrorCopy(error, 'locations');
+      Alert.alert(friendly.title, friendly.message);
       setLocations([]);
     } finally {
       setLoading(false);
@@ -145,6 +124,30 @@ export default function LocationsScreen({ navigation }: any) {
     navigation.navigate('JobSelect', { location });
   };
 
+  const handleGenericRecordingPress = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    navigation.navigate('GenericRecordingHub');
+  };
+
+  const handleFailedUploadsPress = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    navigation.navigate('FailedUploads');
+  };
+
+  useEffect(() => {
+    if (!hasObservedFailuresRef.current) {
+      hasObservedFailuresRef.current = true;
+      previousFailedCountRef.current = uploadQueue.failed;
+      return;
+    }
+
+    if (uploadQueue.failed > previousFailedCountRef.current) {
+      showToast('Upload failed. Open Failed uploads to retry or delete.', 'error');
+    }
+
+    previousFailedCountRef.current = uploadQueue.failed;
+  }, [showToast, uploadQueue.failed]);
+
   const getGreeting = (): string => {
     const hour = new Date().getHours();
     if (hour < 12) return 'Good morning';
@@ -177,6 +180,12 @@ export default function LocationsScreen({ navigation }: any) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
+      <Toast
+        visible={toast.visible}
+        message={toast.message}
+        type={toast.type}
+        onHide={hideToast}
+      />
       <FlatList
         data={locations}
         keyExtractor={(item) => item.id}
@@ -216,29 +225,94 @@ export default function LocationsScreen({ navigation }: any) {
               <TouchableOpacity
                 style={styles.uploadStatus}
                 activeOpacity={0.7}
-                onPress={uploadQueue.failed > 0 ? uploadQueue.retryFailed : undefined}
+                onPress={
+                  uploadQueue.failed > 0
+                    ? handleFailedUploadsPress
+                    : uploadQueue.needsAssignment > 0
+                    ? handleGenericRecordingPress
+                    : undefined
+                }
               >
                 {uploadQueue.isUploading ? (
                   <ActivityIndicator size="small" color="#007AFF" />
                 ) : (
                   <Ionicons
-                    name={uploadQueue.failed > 0 ? 'alert-circle' : 'cloud-upload-outline'}
+                    name={
+                      uploadQueue.failed > 0
+                        ? 'alert-circle'
+                        : uploadQueue.needsAssignment > 0
+                        ? 'time-outline'
+                        : 'cloud-upload-outline'
+                    }
                     size={16}
-                    color={uploadQueue.failed > 0 ? '#FF9500' : '#007AFF'}
+                    color={
+                      uploadQueue.failed > 0
+                        ? '#FF9500'
+                        : uploadQueue.needsAssignment > 0
+                        ? '#C2410C'
+                        : '#007AFF'
+                    }
                   />
                 )}
                 <Text style={[
                   styles.uploadStatusText,
-                  uploadQueue.failed > 0 && styles.uploadStatusTextWarning
+                  (uploadQueue.failed > 0 || uploadQueue.needsAssignment > 0) &&
+                    styles.uploadStatusTextWarning
                 ]}>
-                  {uploadQueue.isUploading
+                  {uploadQueue.failed > 0
+                    ? `${uploadQueue.failed} failed • review`
+                    : uploadQueue.needsAssignment > 0
+                    ? `${uploadQueue.needsAssignment} need assignment`
+                    : uploadQueue.isUploading
                     ? `Uploading ${uploadQueue.uploading}...`
-                    : uploadQueue.failed > 0
-                    ? `${uploadQueue.failed} failed`
                     : `${uploadQueue.pending} pending`}
                 </Text>
               </TouchableOpacity>
             )}
+
+            {uploadQueue.failed > 0 && (
+              <TouchableOpacity
+                style={styles.failedCard}
+                activeOpacity={0.85}
+                onPress={handleFailedUploadsPress}
+              >
+                <View style={styles.failedCardIcon}>
+                  <Ionicons name="alert-circle-outline" size={24} color="#B45309" />
+                </View>
+                <View style={styles.failedCardBody}>
+                  <Text style={styles.failedCardTitle}>Failed uploads</Text>
+                  <Text style={styles.failedCardText}>
+                    Review failed videos, retry them, or delete the ones you want to discard.
+                  </Text>
+                </View>
+                <View style={styles.failedBadge}>
+                  <Text style={styles.failedBadgeText}>{uploadQueue.failed}</Text>
+                </View>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={styles.genericCard}
+              activeOpacity={0.85}
+              onPress={handleGenericRecordingPress}
+            >
+              <View style={styles.genericCardIcon}>
+                <Ionicons name="radio-outline" size={24} color="#0F766E" />
+              </View>
+              <View style={styles.genericCardBody}>
+                <Text style={styles.genericCardTitle}>Generic recording</Text>
+                <Text style={styles.genericCardText}>
+                  Record now and assign location and task later from a pending queue.
+                </Text>
+              </View>
+              {uploadQueue.needsAssignment > 0 ? (
+                <View style={styles.genericBadge}>
+                  <Text style={styles.genericBadgeText}>{uploadQueue.needsAssignment}</Text>
+                </View>
+              ) : (
+                <Ionicons name="chevron-forward" size={18} color="#0F766E" />
+              )}
+            </TouchableOpacity>
 
             {/* Stats Bar */}
             <View style={{
@@ -433,12 +507,12 @@ function LocationCard({
           width: 48,
           height: 48,
           borderRadius: 12,
-          backgroundColor: location.type === 'office' ? '#EEF2FF' : '#EFF6FF',
+          backgroundColor: location.type === 'test_site' ? '#EEF2FF' : '#EFF6FF',
           alignItems: 'center',
           justifyContent: 'center',
           marginRight: 12,
         }}>
-          {location.type === 'office' ? (
+          {location.type === 'test_site' ? (
             <Building2 size={24} color="#6366F1" />
           ) : (
             <Home size={24} color="#3B82F6" />
@@ -557,6 +631,102 @@ const styles = StyleSheet.create({
   },
   uploadStatusTextWarning: {
     color: '#FF9500',
+  },
+  genericCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0FDFA',
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#CCFBF1',
+  },
+  genericCardIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  genericCardBody: {
+    flex: 1,
+    marginRight: 12,
+  },
+  genericCardTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#134E4A',
+  },
+  genericCardText: {
+    marginTop: 4,
+    fontSize: 13,
+    lineHeight: 19,
+    color: '#0F766E',
+  },
+  genericBadge: {
+    minWidth: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#0F766E',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  genericBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  failedCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF7ED',
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+  },
+  failedCardIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  failedCardBody: {
+    flex: 1,
+    marginRight: 12,
+  },
+  failedCardTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#9A3412',
+  },
+  failedCardText: {
+    marginTop: 4,
+    fontSize: 13,
+    lineHeight: 19,
+    color: '#B45309',
+  },
+  failedBadge: {
+    minWidth: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#EA580C',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  failedBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   // Section
   sectionHeader: {

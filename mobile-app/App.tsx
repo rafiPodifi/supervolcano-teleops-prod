@@ -9,6 +9,7 @@ import React, { ErrorInfo, Component } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { View, Text, StyleSheet } from 'react-native';
 import { AuthProvider } from './src/contexts/AuthContext';
+import { PRODUCTION_FATAL_ERROR_COPY } from './src/utils/user-facing-error';
 // TEMPORARILY DISABLED FOR EXPO GO TESTING
 // BLE library (react-native-ble-plx) doesn't work in Expo Go - requires native build
 // import { GoProProvider } from './src/contexts/GoProContext';
@@ -38,16 +39,8 @@ class ErrorBoundary extends Component<
     if (this.state.hasError) {
       return (
         <View style={styles.errorContainer}>
-          <Text style={styles.errorTitle}>⚠️ Something went wrong</Text>
-          <Text style={styles.errorMessage}>
-            {this.state.error?.message || 'Unknown error'}
-          </Text>
-          <Text style={styles.errorHint}>
-            Please close and reopen the app. If the problem persists, contact support.
-          </Text>
-          <Text style={styles.errorDetails}>
-            Error: {this.state.error?.toString()}
-          </Text>
+          <Text style={styles.errorTitle}>{PRODUCTION_FATAL_ERROR_COPY.title}</Text>
+          <Text style={styles.errorHint}>{PRODUCTION_FATAL_ERROR_COPY.message}</Text>
         </View>
       );
     }
@@ -87,24 +80,11 @@ const styles = StyleSheet.create({
     color: '#dc2626',
     marginBottom: 8,
   },
-  errorMessage: {
-    fontSize: 16,
-    color: '#7f1d1d',
-    textAlign: 'center',
-    marginBottom: 16,
-    fontWeight: '500',
-  },
   errorHint: {
     fontSize: 14,
     color: '#991b1b',
     textAlign: 'center',
-    marginBottom: 16,
-  },
-  errorDetails: {
-    fontSize: 12,
-    color: '#991b1b',
-    textAlign: 'center',
-    fontFamily: 'monospace',
-    marginTop: 16,
+    marginTop: 8,
+    lineHeight: 20,
   },
 });

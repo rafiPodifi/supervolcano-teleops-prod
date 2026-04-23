@@ -22,6 +22,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { auth } from '../../config/firebase';
 import { ROOM_TEMPLATES, getRoomTemplate } from '../../lib/templates/location-templates';
+import { getFriendlyErrorCopy } from '@/utils/user-facing-error';
 import Constants from 'expo-constants';
 
 type WizardStep = 'floors' | 'rooms' | 'targets' | 'review';
@@ -197,7 +198,8 @@ export default function LocationWizardScreen() {
       
     } catch (error) {
       console.error('[Wizard] Save error:', error);
-      Alert.alert('Error', 'Failed to save. Please try again.');
+      const friendly = getFriendlyErrorCopy(error, 'location_save');
+      Alert.alert(friendly.title, friendly.message);
     } finally {
       setSaving(false);
     }
@@ -906,4 +908,3 @@ const styles = StyleSheet.create({
     color: '#6B7280',
   },
 });
-

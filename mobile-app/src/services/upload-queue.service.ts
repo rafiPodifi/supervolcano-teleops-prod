@@ -37,10 +37,10 @@ const RETRY_DELAYS = [1000, 5000, 15000, 60000, 300000];
 export interface QueuedVideo {
   id: string;
   localPath: string;
-  locationId: string;
-  locationName: string;
-  jobId: string;
-  jobTitle: string;
+  locationId?: string;
+  locationName?: string;
+  jobId?: string;
+  jobTitle?: string;
   segmentNumber: number;
   startedAt: string;
   endedAt: string;
@@ -56,10 +56,12 @@ export interface QueuedVideo {
   uploadedFileSize?: number;
   uploadedDurationSeconds?: number;
   remoteUploadCompletedAt?: string;
-  status: 'pending' | 'uploading' | 'failed';
+  recordingMode: 'assigned' | 'generic';
+  status: 'needs_assignment' | 'pending' | 'uploading' | 'failed';
 }
 
 export interface QueueStatus {
+  needsAssignment: number;
   pending: number;
   uploading: number;
   failed: number;
@@ -77,9 +79,17 @@ export interface QueueDebugSnapshot {
 type QueueListener = (status: QueueStatus) => void;
 type QueueDebugListener = (snapshot: QueueDebugSnapshot) => void;
 
+export interface QueueAssignmentInput {
+  locationId: string;
+  locationName: string;
+  jobId: string;
+  jobTitle: string;
+}
+
 class UploadQueueServiceClass {
   private queue: QueuedVideo[] = [];
   private debugLogs: UploadDebugLogEntry[] = [];
+  private isInitialized = false;
   private isProcessing = false;
   private isOnline = true;
   private listeners: Set<QueueListener> = new Set();
@@ -88,6 +98,11 @@ class UploadQueueServiceClass {
   private networkUnsubscribe: (() => void) | null = null;
 
   async initialize(): Promise<void> {
+    if (this.isInitialized) {
+      return;
+    }
+
+    this.isInitialized = true;
     console.log('[UploadQueue] Initializing...');
 
     await this.ensureVideosDirectory();
@@ -110,6 +125,7 @@ class UploadQueueServiceClass {
   }
 
   cleanup(): void {
+    this.isInitialized = false;
     this.listeners.clear();
     this.debugListeners.clear();
     if (this.retryTimer) {
@@ -134,10 +150,11 @@ class UploadQueueServiceClass {
   }
 
   getStatus(): QueueStatus {
+    const needsAssignment = this.queue.filter(v => v.status === 'needs_assignment').length;
     const pending = this.queue.filter(v => v.status === 'pending').length;
     const uploading = this.queue.filter(v => v.status === 'uploading').length;
     const failed = this.queue.filter(v => v.status === 'failed').length;
-    return { pending, uploading, failed, total: this.queue.length };
+    return { needsAssignment, pending, uploading, failed, total: this.queue.length };
   }
 
   getDebugSnapshot(): QueueDebugSnapshot {
@@ -169,13 +186,14 @@ class UploadQueueServiceClass {
   async addToQueue(
     tempVideoUri: string,
     payload: {
-      locationId: string;
-      locationName: string;
-      jobId: string;
-      jobTitle: string;
+      locationId?: string;
+      locationName?: string;
+      jobId?: string;
+      jobTitle?: string;
       segmentNumber: number;
       startedAt: string;
       endedAt: string;
+      recordingMode?: 'assigned' | 'generic';
     }
   ): Promise<string> {
     const normalizedTempVideoUri = normalizeLocalFileUri(tempVideoUri);
@@ -185,6 +203,8 @@ class UploadQueueServiceClass {
     const filename = `${id}.mov`;
     const persistentPath = `${VIDEOS_DIR}${filename}`;
     const now = new Date().toISOString();
+    const hasAssignment = Boolean(payload.locationId && payload.jobId);
+    const recordingMode = payload.recordingMode ?? (hasAssignment ? 'assigned' : 'generic');
 
     try {
       const sourceFileInfo = await FileSystem.getInfoAsync(normalizedTempVideoUri);
@@ -211,7 +231,7 @@ class UploadQueueServiceClass {
         locationId: payload.locationId,
         locationName: payload.locationName,
         jobId: payload.jobId,
-        jobTitle: payload.jobTitle,
+        jobTitle: payload.jobTitle ?? 'Generic recording',
         segmentNumber: payload.segmentNumber,
         startedAt: payload.startedAt,
         endedAt: payload.endedAt,
@@ -221,13 +241,16 @@ class UploadQueueServiceClass {
         progress: 0,
         stage: 'queued',
         logs: [],
-        status: 'pending',
+        recordingMode,
+        status: hasAssignment ? 'pending' : 'needs_assignment',
       };
 
       this.appendVideoLog(
         queuedVideo,
         'info',
-        'Segment queued for background upload',
+        hasAssignment
+          ? 'Segment queued for background upload'
+          : 'Recording saved locally and is waiting for location and task assignment',
         'queued',
         persistentPath
       );
@@ -317,7 +340,7 @@ class UploadQueueServiceClass {
 
   async retryItem(id: string): Promise<void> {
     const video = this.queue.find((item) => item.id === id);
-    if (!video) {
+    if (!video || video.status !== 'failed') {
       return;
     }
 
@@ -329,6 +352,72 @@ class UploadQueueServiceClass {
     this.appendVideoLog(video, 'info', 'Manual item retry requested', 'queued');
     await this.persistState();
     void this.processQueue();
+  }
+
+  async assignItem(id: string, assignment: QueueAssignmentInput): Promise<void> {
+    const video = this.queue.find((item) => item.id === id);
+    if (!video) {
+      throw new Error('Queued recording not found.');
+    }
+
+    if (video.status !== 'needs_assignment') {
+      return;
+    }
+
+    video.locationId = assignment.locationId;
+    video.locationName = assignment.locationName;
+    video.jobId = assignment.jobId;
+    video.jobTitle = assignment.jobTitle;
+    video.status = 'pending';
+    video.progress = 0;
+    video.lastError = undefined;
+    video.stage = 'queued';
+    this.appendVideoLog(
+      video,
+      'info',
+      'Assignment completed. Recording is ready to upload.',
+      'queued',
+      `${assignment.locationName} / ${assignment.jobTitle}`
+    );
+    await this.persistState();
+    void this.processQueue();
+  }
+
+  async deleteItem(id: string): Promise<void> {
+    const video = this.queue.find((item) => item.id === id);
+    if (!video) {
+      return;
+    }
+
+    let fileSize = 0;
+    try {
+      const fileInfo = await FileSystem.getInfoAsync(video.localPath);
+      fileSize = 'size' in fileInfo && typeof fileInfo.size === 'number' ? fileInfo.size : 0;
+    } catch {
+      fileSize = 0;
+    }
+
+    try {
+      await FileSystem.deleteAsync(video.localPath, { idempotent: true });
+    } catch {
+      // Ignore file deletion errors so queue state can still be cleaned up.
+    }
+
+    this.appendGlobalLog(
+      'info',
+      'Queued recording deleted before upload',
+      undefined,
+      video.id,
+      JSON.stringify({
+        createdAt: video.createdAt,
+        deletedAt: new Date().toISOString(),
+        fileSize,
+        segmentNumber: video.segmentNumber,
+      })
+    );
+
+    this.queue = this.queue.filter((item) => item.id !== id);
+    await this.persistState();
   }
 
   async clearQueue(): Promise<void> {
@@ -347,6 +436,20 @@ class UploadQueueServiceClass {
 
   private async uploadVideo(video: QueuedVideo): Promise<void> {
     console.log('[UploadQueue] Uploading:', video.id);
+
+    if (!video.locationId || !video.locationName || !video.jobId || !video.jobTitle) {
+      video.status = 'needs_assignment';
+      video.progress = 0;
+      video.lastError = undefined;
+      this.appendVideoLog(
+        video,
+        'info',
+        'Upload paused until location and task are assigned',
+        'queued'
+      );
+      await this.persistState();
+      return;
+    }
 
     video.status = 'uploading';
     video.progress = 0;
@@ -489,13 +592,19 @@ class UploadQueueServiceClass {
 
   private normalizeQueuedVideo(item: any): QueuedVideo {
     const now = new Date().toISOString();
+    const hasAssignment = Boolean(item.locationId && item.jobId);
+    const normalizedStatus =
+      item.status === 'uploading'
+        ? 'pending'
+        : item.status ?? (hasAssignment ? 'pending' : 'needs_assignment');
+
     return {
       id: item.id,
       localPath: item.localPath,
       locationId: item.locationId,
       locationName: item.locationName,
       jobId: item.jobId,
-      jobTitle: item.jobTitle,
+      jobTitle: item.jobTitle ?? 'Generic recording',
       segmentNumber: item.segmentNumber,
       startedAt: item.startedAt,
       endedAt: item.endedAt,
@@ -511,7 +620,8 @@ class UploadQueueServiceClass {
       uploadedFileSize: item.uploadedFileSize,
       uploadedDurationSeconds: item.uploadedDurationSeconds,
       remoteUploadCompletedAt: item.remoteUploadCompletedAt,
-      status: item.status === 'uploading' ? 'pending' : item.status ?? 'pending',
+      recordingMode: item.recordingMode ?? (hasAssignment ? 'assigned' : 'generic'),
+      status: hasAssignment || normalizedStatus === 'failed' ? normalizedStatus : 'needs_assignment',
     };
   }
 
@@ -537,6 +647,14 @@ class UploadQueueServiceClass {
       for (const video of this.queue) {
         if (video.status === 'pending' && video.logs.length === 0) {
           this.appendVideoLog(video, 'info', 'Recovered queued upload from disk', video.stage);
+        }
+        if (video.status === 'needs_assignment' && video.logs.length === 0) {
+          this.appendVideoLog(
+            video,
+            'info',
+            'Recovered saved recording that is still waiting for assignment',
+            'queued'
+          );
         }
       }
       await this.saveQueue();

@@ -6,6 +6,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { fetchJobsForLocation } from '../services/api';
 import { Job, Location } from '../types';
 import { Colors, Typography, Spacing, BorderRadius, Shadows } from '../constants/Design';
+import { getFriendlyErrorCopy } from '@/utils/user-facing-error';
 
 export default function JobSelectScreen({ route, navigation }: any) {
   const { location } = route.params as { location: Location };
@@ -33,7 +34,8 @@ export default function JobSelectScreen({ route, navigation }: any) {
       const jobsList = await fetchJobsForLocation(location.id);
       setJobs(jobsList);
     } catch (error) {
-      Alert.alert('Error', 'Failed to load jobs');
+      const friendly = getFriendlyErrorCopy(error, 'tasks');
+      Alert.alert(friendly.title, friendly.message);
     } finally {
       setLoading(false);
     }

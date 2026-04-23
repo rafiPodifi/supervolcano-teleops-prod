@@ -9,7 +9,9 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import LocationsScreen from '../screens/LocationsScreen';
 import JobSelectScreen from '../screens/JobSelectScreen';
 import CameraScreen from '../screens/CameraScreen';
-import UploadQueueScreen from '../screens/UploadQueueScreen';
+import GenericRecordingHubScreen from '../screens/GenericRecordingHubScreen';
+import GenericPendingUploadsScreen from '../screens/GenericPendingUploadsScreen';
+import FailedUploadsScreen from '../screens/FailedUploadsScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -26,16 +28,24 @@ export default function CleanerNavigator() {
         component={LocationsScreen}
       />
       <Stack.Screen
+        name="GenericRecordingHub"
+        component={GenericRecordingHubScreen}
+      />
+      <Stack.Screen
+        name="GenericPendingUploads"
+        component={GenericPendingUploadsScreen}
+      />
+      <Stack.Screen
+        name="FailedUploads"
+        component={FailedUploadsScreen}
+      />
+      <Stack.Screen
         name="JobSelect"
         component={JobSelectScreen}
       />
       <Stack.Screen 
         name="Camera" 
         component={CameraScreen}
-      />
-      <Stack.Screen
-        name="UploadQueue"
-        component={UploadQueueScreen}
       />
     </Stack.Navigator>
   );

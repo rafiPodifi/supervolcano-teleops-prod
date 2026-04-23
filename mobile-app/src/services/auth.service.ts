@@ -15,6 +15,7 @@ import { auth, db } from '@/config/firebase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Alert } from 'react-native';
 import type { UserProfile } from '@/types/user.types';
+import { getFriendlyErrorCopy } from '@/utils/user-facing-error';
 
 const USER_PROFILE_KEY = '@user_profile';
 
@@ -106,7 +107,8 @@ export class AuthService {
       
       // Show generic alert for unknown errors
       if (!error.message?.includes('does not have access')) {
-        Alert.alert('Login Error', error.message || 'Unknown error occurred');
+        const friendly = getFriendlyErrorCopy(error, 'login');
+        Alert.alert(friendly.title, friendly.message);
       }
       
       throw error;

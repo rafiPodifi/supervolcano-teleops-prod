@@ -23,6 +23,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { getFriendlyErrorCopy } from '@/utils/user-facing-error';
 
 export default function LoginScreen() {
   const { signIn } = useAuth();
@@ -99,30 +100,7 @@ export default function LoginScreen() {
   };
 
   const getErrorMessage = (err: any): string => {
-    const code = err.code || '';
-    const message = err.message || '';
-
-    if (code.includes('user-not-found') || message.includes('not found')) {
-      return 'No account found with this email';
-    }
-
-    if (code.includes('wrong-password') || message.includes('password')) {
-      return 'Incorrect password';
-    }
-
-    if (code.includes('invalid-email')) {
-      return 'Please enter a valid email address';
-    }
-
-    if (code.includes('too-many-requests')) {
-      return 'Too many attempts. Please try again later';
-    }
-
-    if (code.includes('network')) {
-      return 'Network error. Check your connection';
-    }
-
-    return message || 'Login failed. Please try again';
+    return getFriendlyErrorCopy(err, 'login').message;
   };
 
   return (

@@ -24,6 +24,7 @@ import { auth } from '../../config/firebase';
 import Constants from 'expo-constants';
 import UseCurrentLocation from '../../components/UseCurrentLocation';
 import { AddressResult } from '../../services/location.service';
+import { getFriendlyErrorCopy } from '@/utils/user-facing-error';
 
 const GOOGLE_PLACES_API_KEY = Constants.expoConfig?.extra?.googlePlacesApiKey || process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
 const API_BASE_URL = Constants.expoConfig?.extra?.apiUrl || process.env.EXPO_PUBLIC_API_BASE_URL || 'https://your-api.vercel.app';
@@ -195,7 +196,8 @@ export default function AddLocationScreen() {
       
     } catch (error: any) {
       console.error('[AddLocation] Error:', error);
-      Alert.alert('Error', error.message || 'Failed to create location. Please try again.');
+      const friendly = getFriendlyErrorCopy(error, 'location_save');
+      Alert.alert(friendly.title, friendly.message);
       setSaving(false);
     }
   };
@@ -529,4 +531,3 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 });
-

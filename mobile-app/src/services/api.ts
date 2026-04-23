@@ -2,8 +2,42 @@ import { firestore } from '../config/firebase';
 import { collection, getDocs, query, where, doc, getDoc, or } from 'firebase/firestore';
 import { Location, Job } from '../types';
 import { getApiBaseUrl } from './api-base';
+import { getAuth } from 'firebase/auth';
 
 const API_BASE_URL = getApiBaseUrl();
+
+export async function fetchAssignedLocationsForCurrentUser(): Promise<Location[]> {
+  const auth = getAuth();
+  const currentUser = auth.currentUser;
+
+  if (!currentUser) {
+    return [];
+  }
+
+  try {
+    const token = await currentUser.getIdToken();
+    const response = await fetch(`${API_BASE_URL}/api/users/${currentUser.uid}/assigned-locations`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    const data = await response.json();
+    if (!data.success || !Array.isArray(data.assignments)) {
+      return [];
+    }
+
+    return data.assignments.map((assignment: any) => ({
+      id: assignment.location_id,
+      name: assignment.location_name || 'Unnamed Location',
+      address: assignment.location_address || '',
+      assignedOrganizationName: '',
+    })) as Location[];
+  } catch (error) {
+    console.error('❌ Failed to fetch current user assigned locations:', error);
+    return [];
+  }
+}
 
 /**
  * Fetch assigned location IDs for a user
