@@ -40,7 +40,7 @@ import { getExternalCameraDisplayState } from '../../components/external-camera/
 import ExternalCameraView from '../../components/external-camera/ExternalCameraView';
 import { useExternalCameraDiagnostics } from '../../hooks/useExternalCameraDiagnostics';
 import { useRecordingConfig } from '../../hooks/useRecordingConfig';
-import { ExternalCamera } from '../../native/external-camera';
+import { ExternalCamera, capQualityToProfile } from '../../native/external-camera';
 import { normalizeLocalFileUri } from '../../utils/local-file-uri';
 import * as FileSystem from 'expo-file-system/legacy';
 
@@ -296,9 +296,12 @@ export default function MemberRecordScreen() {
 
         setIsRecording(true);
         const outputPath = await createExternalRecordingPath();
+        const effectiveQuality = externalCamera.selectedProfile
+          ? capQualityToProfile(recordingConfig.externalCamera.quality, externalCamera.selectedProfile)
+          : recordingConfig.externalCamera.quality;
         await ExternalCamera.startRecording(outputPath, {
           enableAudio: recordingConfig.externalCamera.enableAudio,
-          quality: recordingConfig.externalCamera.quality,
+          quality: effectiveQuality,
         });
         return;
       }
@@ -320,7 +323,7 @@ export default function MemberRecordScreen() {
       setIsRecording(false);
       console.error('[MemberRecord] Start error:', error);
     }
-  }, [createExternalRecordingPath, resetMilestones]);
+  }, [createExternalRecordingPath, resetMilestones, recordingConfig, externalCamera]);
 
   const stopRecording = async (navigateToComplete: boolean = true) => {
     try {

@@ -6,6 +6,7 @@ import {
   ExternalCameraSessionState,
   ExternalCameraStatus,
   ExternalCameraSupportState,
+  profileToQuality,
 } from '@/native/external-camera';
 
 export type ExternalCameraConnectionStatus = 'unknown' | 'connected' | 'disconnected';
@@ -40,6 +41,8 @@ export type ExternalCameraDiagnostics = {
   ) => Promise<boolean>;
   isConnectionTimedOut: boolean;
   resetConnectionTimeout: () => void;
+  selectedProfile: ExternalCameraStatus['selectedProfile'];
+  negotiatedQuality: 'fhd' | 'hd' | 'sd' | null;
   simulationControls: ExternalCameraSimulationControls | null;
 };
 
@@ -187,6 +190,9 @@ export function useExternalCameraDiagnostics(): ExternalCameraDiagnostics {
     effectiveStatus.state === 'ready' &&
     effectiveStatus.sessionState === 'ready';
   const isSimulated = simulatedState !== null;
+  const negotiatedQuality = effectiveStatus.selectedProfile
+    ? profileToQuality(effectiveStatus.selectedProfile)
+    : null;
   const statusMessage = hasLivePreview
     ? 'External camera preview is live.'
     : cameraErrorMessage ?? effectiveStatus.message;
@@ -410,6 +416,8 @@ export function useExternalCameraDiagnostics(): ExternalCameraDiagnostics {
     isReady,
     isSimulated,
     isConnectionTimedOut,
+    selectedProfile: effectiveStatus.selectedProfile ?? null,
+    negotiatedQuality,
     openSettings,
     refresh,
     retryPreview,

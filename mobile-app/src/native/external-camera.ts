@@ -107,6 +107,33 @@ type StartRecordingOptions = {
   quality?: 'highest' | 'fhd' | 'hd' | 'sd';
 };
 
+// Maps a negotiated profile's resolution back to the closest quality tier.
+// 'highest' is not returned — it is a request label, not a capability label.
+export function profileToQuality(
+  profile: { width: number; height: number }
+): 'fhd' | 'hd' | 'sd' {
+  if (profile.width >= 1920) return 'fhd';
+  if (profile.width >= 1280) return 'hd';
+  return 'sd';
+}
+
+const QUALITY_RANK: Record<'highest' | 'fhd' | 'hd' | 'sd', number> = {
+  sd: 0, hd: 1, fhd: 2, highest: 2,
+};
+
+// Returns the effective quality to request for recording, capped at what the
+// camera proved it supports during preview negotiation.
+export function capQualityToProfile(
+  requested: 'highest' | 'fhd' | 'hd' | 'sd',
+  negotiated: { width: number; height: number }
+): 'highest' | 'fhd' | 'hd' | 'sd' {
+  const negotiatedQuality = profileToQuality(negotiated);
+  if (QUALITY_RANK[requested] <= QUALITY_RANK[negotiatedQuality]) {
+    return requested;
+  }
+  return negotiatedQuality;
+}
+
 const NativeExternalCameraModule = NativeModules.ExternalCameraModule;
 const eventEmitter = NativeExternalCameraModule
   ? new NativeEventEmitter(NativeExternalCameraModule)

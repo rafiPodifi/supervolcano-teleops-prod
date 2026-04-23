@@ -64,6 +64,9 @@ These four issues prevent the app from working correctly. No other development s
 | [x] | **2** | **Camera disconnect mid-recording is not handled** If the camera unplugs while recording, the app gets confused: the session stays active but the camera is gone. Per the April 13 meeting: disconnect should cleanly end the session and cap the video. | *MemberRecordScreen.tsx :100* |
 | [x] | **3** | **Camera connection timeout with no recovery** If the external camera fails to connect within 15 seconds, the app stops trying and gets stuck with no message and no way to retry. This must be fixed so the app can recover. | *App.tsx :13–14, 65–66* |
 | [ ] | **4** | **Error messages expose internal code details** When something goes wrong, the app shows the full technical error on screen. In production, a friendly message should be shown; technical details should be logged privately. | *App.tsx :47–53* |
+| [x] | **5** | **USB camera capabilities are not detected before recording** The app records at a fixed quality profile without checking what resolutions, framerates, or formats the connected camera actually supports. On cameras that do not support the configured profile, recording may fail silently, produce a corrupt file, or record at an unexpected resolution. The app should query the connected camera's supported capabilities at connection time and automatically select the best matching profile, falling back gracefully if the configured quality is unavailable. | external-camera.ts, useRecordingConfig.ts
+
+
 
   **P1 — High Priority**  
 
