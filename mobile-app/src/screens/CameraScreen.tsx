@@ -47,6 +47,8 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 
 const SEGMENT_DURATION = 300; // 5 minutes in seconds
+const MODE_SWITCH_TIMEOUT_MS = 15000;
+const MODE_SWITCH_CANCEL_REVEAL_MS = 5000;
 
 type LensType = 'ultra-wide' | 'wide' | 'telephoto';
 
@@ -70,6 +72,7 @@ export default function CameraScreen({ route, navigation }: any) {
   const [selectedLens, setSelectedLens] = useState<LensType>('wide');
   const [cameraMode, setCameraMode] = useState<CameraMode>('native');
   const [isModeTransitioning, setIsModeTransitioning] = useState(false);
+  const [isCancelAvailable, setIsCancelAvailable] = useState(false);
   const [nativeCameraMountKey, setNativeCameraMountKey] = useState(0);
   const externalCamera = useExternalCameraDiagnostics();
   const isExternalMode = cameraMode === 'external';
@@ -152,6 +155,10 @@ export default function CameraScreen({ route, navigation }: any) {
     timeout: ReturnType<typeof setTimeout>;
   } | null>(null);
   const externalQueuedConfirmationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const modeSwitchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const modeSwitchCancelRevealRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingTargetModeRef = useRef<CameraMode | null>(null);
+  const previousModeRef = useRef<CameraMode>('native');
 
   useEffect(() => {
     isExternalModeRef.current = isExternalMode;
@@ -849,45 +856,158 @@ export default function CameraScreen({ route, navigation }: any) {
     }
   };
 
-  const handleCameraModeChange = async (mode: CameraMode) => {
-    if (mode === cameraMode || isModeTransitioning) {
+  const clearModeSwitchTimers = useCallback(() => {
+    if (modeSwitchTimeoutRef.current) {
+      clearTimeout(modeSwitchTimeoutRef.current);
+      modeSwitchTimeoutRef.current = null;
+    }
+    if (modeSwitchCancelRevealRef.current) {
+      clearTimeout(modeSwitchCancelRevealRef.current);
+      modeSwitchCancelRevealRef.current = null;
+    }
+  }, []);
+
+  const endModeTransition = useCallback(() => {
+    clearModeSwitchTimers();
+    pendingTargetModeRef.current = null;
+    setIsCancelAvailable(false);
+    setIsModeTransitioning(false);
+  }, [clearModeSwitchTimers]);
+
+  const revertToPreviousMode = useCallback(() => {
+    const previousMode = previousModeRef.current;
+    if (previousMode === 'native') {
+      setNativeCameraMountKey((currentKey) => currentKey + 1);
+    }
+    setCameraMode(previousMode);
+    if (ExternalCamera.isSupported) {
+      ExternalCamera.setExternalModeEnabled(previousMode === 'external').catch((error) => {
+        console.warn('[ExternalCamera] Mode revert failed', error);
+      });
+    }
+  }, []);
+
+  const handleCameraModeChange = useCallback((mode: CameraMode) => {
+    if (
+      mode === cameraMode ||
+      isModeTransitioning ||
+      isSessionActive ||
+      isRecording
+    ) {
       return;
     }
 
+    previousModeRef.current = cameraMode;
+    pendingTargetModeRef.current = mode;
+    setIsCancelAvailable(false);
     setIsModeTransitioning(true);
-    const wasSessionActive = isSessionActive;
-    if (wasSessionActive) {
-      await stopSession();
-      shouldResumeSessionRef.current = true;
-    }
 
-    try {
-      if (mode === 'external') {
-        setCameraMode(mode);
-        if (ExternalCamera.isSupported) {
-          ExternalCamera.setExternalModeEnabled(true)
-            .then(() => externalCamera.refresh())
-            .catch((error) => {
-              console.warn('[ExternalCamera] Mode switch failed', error);
-            });
-        }
-      } else {
-        setNativeCameraMountKey((currentKey) => currentKey + 1);
-        setCameraMode(mode);
-        if (ExternalCamera.isSupported) {
-          ExternalCamera.setExternalModeEnabled(false)
-            .then(() => externalCamera.refresh())
-            .catch((error) => {
-              console.warn('[ExternalCamera] Mode switch failed', error);
-            });
-        }
+    modeSwitchCancelRevealRef.current = setTimeout(() => {
+      setIsCancelAvailable(true);
+    }, MODE_SWITCH_CANCEL_REVEAL_MS);
+
+    modeSwitchTimeoutRef.current = setTimeout(() => {
+      if (pendingTargetModeRef.current !== mode) {
+        return;
       }
-    } catch (error) {
-      console.warn('[ExternalCamera] Mode switch failed', error);
-    } finally {
-      setIsModeTransitioning(false);
+      const targetMode = mode;
+      revertToPreviousMode();
+      endModeTransition();
+      const copy = getFriendlyErrorCopy(new Error('mode switch timeout'), 'recording');
+      Alert.alert(
+        copy.title,
+        "Couldn't switch camera. Try again or check your camera connection.",
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Try again', onPress: () => handleCameraModeChange(targetMode) },
+        ]
+      );
+    }, MODE_SWITCH_TIMEOUT_MS);
+
+    if (mode === 'external') {
+      setCameraMode(mode);
+      if (ExternalCamera.isSupported) {
+        ExternalCamera.setExternalModeEnabled(true)
+          .then(() => externalCamera.refresh())
+          .catch((error) => {
+            if (pendingTargetModeRef.current !== mode) {
+              return;
+            }
+            console.warn('[ExternalCamera] Mode switch failed', error);
+            revertToPreviousMode();
+            endModeTransition();
+            const copy = getFriendlyErrorCopy(error, 'recording');
+            Alert.alert(copy.title, copy.message, [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Try again', onPress: () => handleCameraModeChange(mode) },
+            ]);
+          });
+      } else {
+        endModeTransition();
+      }
+    } else {
+      setNativeCameraMountKey((currentKey) => currentKey + 1);
+      setCameraMode(mode);
+      if (ExternalCamera.isSupported) {
+        ExternalCamera.setExternalModeEnabled(false)
+          .then(() => {
+            externalCamera.refresh();
+            if (pendingTargetModeRef.current === mode) {
+              endModeTransition();
+            }
+          })
+          .catch((error) => {
+            if (pendingTargetModeRef.current !== mode) {
+              return;
+            }
+            console.warn('[ExternalCamera] Mode switch failed', error);
+            revertToPreviousMode();
+            endModeTransition();
+            const copy = getFriendlyErrorCopy(error, 'recording');
+            Alert.alert(copy.title, copy.message, [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Try again', onPress: () => handleCameraModeChange(mode) },
+            ]);
+          });
+      } else {
+        endModeTransition();
+      }
     }
-  };
+  }, [
+    cameraMode,
+    isModeTransitioning,
+    isSessionActive,
+    isRecording,
+    externalCamera,
+    revertToPreviousMode,
+    endModeTransition,
+  ]);
+
+  const handleCancelModeSwitch = useCallback(() => {
+    if (!isModeTransitioning) {
+      return;
+    }
+    revertToPreviousMode();
+    endModeTransition();
+  }, [isModeTransitioning, revertToPreviousMode, endModeTransition]);
+
+  useEffect(() => {
+    if (!isModeTransitioning) {
+      return;
+    }
+    if (pendingTargetModeRef.current !== 'external') {
+      return;
+    }
+    if (cameraMode === 'external' && externalCamera.isReady) {
+      endModeTransition();
+    }
+  }, [isModeTransitioning, cameraMode, externalCamera.isReady, endModeTransition]);
+
+  useEffect(() => {
+    return () => {
+      clearModeSwitchTimers();
+    };
+  }, [clearModeSwitchTimers]);
 
   useEffect(() => {
     if (!shouldResumeSessionRef.current) {
@@ -1202,7 +1322,7 @@ export default function CameraScreen({ route, navigation }: any) {
               value={cameraMode}
               onChange={handleCameraModeChange}
               externalDisabled={!externalCamera.canSwitchToExternal}
-              disabled={isModeTransitioning}
+              disabled={isModeTransitioning || isSessionActive || isRecording}
             />
           </View>
         )}
@@ -1297,6 +1417,23 @@ export default function CameraScreen({ route, navigation }: any) {
           </Text>
         </TouchableOpacity>
       </View>
+
+      {isModeTransitioning && (
+        <View style={styles.modeSwitchOverlay} pointerEvents="auto">
+          <ActivityIndicator size="large" color="#fff" />
+          <Text style={styles.modeSwitchLabel}>Switching camera...</Text>
+          {isCancelAvailable && (
+            <TouchableOpacity
+              style={styles.modeSwitchCancelButton}
+              onPress={handleCancelModeSwitch}
+              activeOpacity={0.8}
+              testID="mode-switch-cancel"
+            >
+              <Text style={styles.modeSwitchCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
     </View>
   );
 }
@@ -1305,6 +1442,37 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#000',
+  },
+  modeSwitchOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 100,
+  },
+  modeSwitchLabel: {
+    marginTop: 16,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  modeSwitchCancelButton: {
+    marginTop: 24,
+    paddingHorizontal: 28,
+    paddingVertical: 12,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.4)',
+  },
+  modeSwitchCancelText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#fff',
   },
   centerContainer: {
     flex: 1,
