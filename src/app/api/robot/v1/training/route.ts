@@ -1,33 +1,33 @@
 /**
  * GET /api/robot/v1/training
- * 
+ *
  * Public API for robot OEMs to query training corpus
  * Requires API key authentication
  * Returns ONLY anonymized data (no PII)
  */
 
-import { NextRequest, NextResponse } from 'next/server';
-import { sql } from '@/lib/db/postgres';
+import { NextRequest, NextResponse } from "next/server";
+import { sql } from "@/lib/db/postgres";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   try {
     // API key authentication
-    const apiKey = request.headers.get('x-api-key');
+    const apiKey = request.headers.get("x-api-key");
     if (!apiKey || apiKey !== process.env.ROBOT_API_KEY) {
-      return NextResponse.json({ error: 'Invalid API key' }, { status: 401 });
+      return NextResponse.json({ error: "Invalid API key" }, { status: 401 });
     }
 
     const { searchParams } = new URL(request.url);
-    const roomType = searchParams.get('room_type');
-    const actionTypes = searchParams.getAll('action_type');
-    const objectLabels = searchParams.getAll('object_label');
-    const minQuality = parseFloat(searchParams.get('min_quality') || '0.5');
-    const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 100);
+    const roomType = searchParams.get("room_type");
+    const actionTypes = searchParams.getAll("action_type");
+    const objectLabels = searchParams.getAll("object_label");
+    const minQuality = parseFloat(searchParams.get("min_quality") || "0.5");
+    const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 100);
 
     // Build query
-    let queryParts = [
+    const queryParts = [
       `SELECT 
         id,
         video_url,
@@ -38,9 +38,9 @@ export async function GET(request: NextRequest) {
         duration_seconds,
         quality_score
       FROM training_videos
-      WHERE quality_score >= $1`
+      WHERE quality_score >= $1`,
     ];
-    
+
     const params: any[] = [minQuality];
     let paramIndex = 2;
 
@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
     queryParts.push(` ORDER BY quality_score DESC LIMIT $${paramIndex++}`);
     params.push(limit);
 
-    const query = queryParts.join(' ');
+    const query = queryParts.join(" ");
     const result = await sql.query(query, params);
     const rows = Array.isArray(result) ? result : result.rows;
 
@@ -74,7 +74,9 @@ export async function GET(request: NextRequest) {
         UPDATE training_videos 
         SET view_count = view_count + 1 
         WHERE id = ANY(${ids}::uuid[])
-      `.catch(err => console.error('[Robot API] Failed to increment view counts:', err));
+      `.catch((err) =>
+        console.error("[Robot API] Failed to increment view counts:", err),
+      );
     }
 
     return NextResponse.json({
@@ -88,11 +90,7 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error: any) {
-    console.error('[Robot API] Training query error:', error);
-    return NextResponse.json(
-      { error: 'Query failed' },
-      { status: 500 }
-    );
+    console.error("[Robot API] Training query error:", error);
+    return NextResponse.json({ error: "Query failed" }, { status: 500 });
   }
 }
-

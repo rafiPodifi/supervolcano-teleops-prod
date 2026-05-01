@@ -30,13 +30,15 @@ export async function recordTaskCompletion(data: TaskCompletionInput) {
     const completionRef = adminDb.collection("taskCompletions").doc();
 
     // Convert dates to Firestore timestamps
-    const startedAt = data.startedAt instanceof Date 
-      ? Timestamp.fromDate(data.startedAt)
-      : Timestamp.fromDate(new Date(data.startedAt));
-    
-    const completedAt = data.completedAt instanceof Date
-      ? Timestamp.fromDate(data.completedAt)
-      : Timestamp.fromDate(new Date(data.completedAt));
+    const startedAt =
+      data.startedAt instanceof Date
+        ? Timestamp.fromDate(data.startedAt)
+        : Timestamp.fromDate(new Date(data.startedAt));
+
+    const completedAt =
+      data.completedAt instanceof Date
+        ? Timestamp.fromDate(data.completedAt)
+        : Timestamp.fromDate(new Date(data.completedAt));
 
     await completionRef.set({
       taskId: data.taskId,
@@ -61,14 +63,20 @@ export async function recordTaskCompletion(data: TaskCompletionInput) {
     return { success: true, id: completionRef.id };
   } catch (error: any) {
     console.error("Failed to record task completion:", error);
-    return { success: false, error: error.message || "Failed to record completion" };
+    return {
+      success: false,
+      error: error.message || "Failed to record completion",
+    };
   }
 }
 
 /**
  * Get task completion status for a task
  */
-export async function getTaskCompletionStatus(taskId: string, sessionId?: string) {
+export async function getTaskCompletionStatus(
+  taskId: string,
+  sessionId?: string,
+) {
   try {
     let query: FirebaseFirestore.Query = adminDb
       .collection("taskCompletions")
@@ -103,7 +111,10 @@ export async function getTaskCompletionStatus(taskId: string, sessionId?: string
 /**
  * Check if task was completed in today's session at this location
  */
-export async function getTaskCompletionInSession(taskId: string, sessionId: string) {
+export async function getTaskCompletionInSession(
+  taskId: string,
+  sessionId: string,
+) {
   try {
     const snapshot = await adminDb
       .collection("taskCompletions")
@@ -121,7 +132,12 @@ export async function getTaskCompletionInSession(taskId: string, sessionId: stri
     return {
       success: true,
       completed: true,
-      completion: { id: doc.id, ...data, completedAt: data.completedAt, startedAt: data.startedAt },
+      completion: {
+        id: doc.id,
+        ...data,
+        completedAt: data.completedAt,
+        startedAt: data.startedAt,
+      },
     };
   } catch (error: any) {
     console.error("Failed to check task completion:", error);
@@ -132,7 +148,10 @@ export async function getTaskCompletionInSession(taskId: string, sessionId: stri
 /**
  * Get all completions for a specific task in today's session
  */
-export async function getTaskCompletionsInSession(taskId: string, sessionId: string) {
+export async function getTaskCompletionsInSession(
+  taskId: string,
+  sessionId: string,
+) {
   try {
     let snapshot;
     try {
@@ -144,7 +163,10 @@ export async function getTaskCompletionsInSession(taskId: string, sessionId: str
         .get();
     } catch (error: any) {
       // If orderBy fails due to missing index, query without it
-      console.warn("[taskCompletions] OrderBy failed, querying without it:", error.message);
+      console.warn(
+        "[taskCompletions] OrderBy failed, querying without it:",
+        error.message,
+      );
       snapshot = await adminDb
         .collection("taskCompletions")
         .where("taskId", "==", taskId)
@@ -152,7 +174,7 @@ export async function getTaskCompletionsInSession(taskId: string, sessionId: str
         .get();
     }
 
-    let completions = snapshot.docs.map((doc) => {
+    const completions = snapshot.docs.map((doc) => {
       const data = doc.data();
       return {
         id: doc.id,
@@ -165,8 +187,12 @@ export async function getTaskCompletionsInSession(taskId: string, sessionId: str
     // Sort in memory if orderBy was skipped
     if (completions.length > 0 && !snapshot.query.orderBy.length) {
       completions.sort((a: any, b: any) => {
-        const aTime = a.completedAt?.toDate ? a.completedAt.toDate().getTime() : new Date(a.completedAt).getTime();
-        const bTime = b.completedAt?.toDate ? b.completedAt.toDate().getTime() : new Date(b.completedAt).getTime();
+        const aTime = a.completedAt?.toDate
+          ? a.completedAt.toDate().getTime()
+          : new Date(a.completedAt).getTime();
+        const bTime = b.completedAt?.toDate
+          ? b.completedAt.toDate().getTime()
+          : new Date(b.completedAt).getTime();
         return bTime - aTime; // Descending
       });
     }
@@ -174,16 +200,25 @@ export async function getTaskCompletionsInSession(taskId: string, sessionId: str
     return { success: true, completions };
   } catch (error: any) {
     console.error("Failed to get task completions:", error);
-    return { success: false, error: error.message || "Failed to load completions" };
+    return {
+      success: false,
+      error: error.message || "Failed to load completions",
+    };
   }
 }
 
 /**
  * Get completion statistics for a task
  */
-export async function getTaskCompletionStats(taskId: string, sessionId?: string, days?: number) {
+export async function getTaskCompletionStats(
+  taskId: string,
+  sessionId?: string,
+  days?: number,
+) {
   try {
-    let query: FirebaseFirestore.Query = adminDb.collection("taskCompletions").where("taskId", "==", taskId);
+    let query: FirebaseFirestore.Query = adminDb
+      .collection("taskCompletions")
+      .where("taskId", "==", taskId);
 
     if (sessionId) {
       query = query.where("sessionId", "==", sessionId);
@@ -200,12 +235,18 @@ export async function getTaskCompletionStats(taskId: string, sessionId?: string,
     const completions = snapshot.docs.map((doc) => doc.data());
 
     const totalCount = completions.length;
-    const totalDuration = completions.reduce((sum: number, c: any) => sum + (c.actualDuration || 0), 0);
-    const avgDuration = totalCount > 0 ? Math.round(totalDuration / totalCount) : 0;
+    const totalDuration = completions.reduce(
+      (sum: number, c: any) => sum + (c.actualDuration || 0),
+      0,
+    );
+    const avgDuration =
+      totalCount > 0 ? Math.round(totalDuration / totalCount) : 0;
 
     const statusCounts = {
-      completed: completions.filter((c: any) => c.status === "completed").length,
-      incomplete: completions.filter((c: any) => c.status === "incomplete").length,
+      completed: completions.filter((c: any) => c.status === "completed")
+        .length,
+      incomplete: completions.filter((c: any) => c.status === "incomplete")
+        .length,
       error: completions.filter((c: any) => c.status === "error").length,
     };
 
@@ -239,7 +280,10 @@ export async function getSessionTaskCompletions(sessionId: string) {
         .get();
     } catch (error: any) {
       // If orderBy fails due to missing index, query without it
-      console.warn("[taskCompletions] OrderBy failed, querying without it:", error.message);
+      console.warn(
+        "[taskCompletions] OrderBy failed, querying without it:",
+        error.message,
+      );
       snapshot = await adminDb
         .collection("taskCompletions")
         .where("sessionId", "==", sessionId)
@@ -268,8 +312,12 @@ export async function getSessionTaskCompletions(sessionId: string) {
     // Sort each task's completions by date (descending)
     Object.keys(completionsByTask).forEach((taskId) => {
       completionsByTask[taskId].sort((a: any, b: any) => {
-        const aTime = a.completedAt?.toDate ? a.completedAt.toDate().getTime() : new Date(a.completedAt).getTime();
-        const bTime = b.completedAt?.toDate ? b.completedAt.toDate().getTime() : new Date(b.completedAt).getTime();
+        const aTime = a.completedAt?.toDate
+          ? a.completedAt.toDate().getTime()
+          : new Date(a.completedAt).getTime();
+        const bTime = b.completedAt?.toDate
+          ? b.completedAt.toDate().getTime()
+          : new Date(b.completedAt).getTime();
         return bTime - aTime; // Descending
       });
     });
@@ -277,7 +325,9 @@ export async function getSessionTaskCompletions(sessionId: string) {
     return { success: true, completions: completionsByTask };
   } catch (error: any) {
     console.error("Failed to get session completions:", error);
-    return { success: false, error: error.message || "Failed to load completions" };
+    return {
+      success: false,
+      error: error.message || "Failed to load completions",
+    };
   }
 }
-
