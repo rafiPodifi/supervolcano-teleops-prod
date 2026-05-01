@@ -1,5 +1,6 @@
 /**
  * CAMERA SCREEN - Cross-Platform with Offline Support
+ * Used by CleanerNavigator (location_cleaner role).
  * Continuous recording with background segment uploads
  * Videos persist locally until confirmed uploaded
  * Uses react-native-vision-camera for physical lens selection

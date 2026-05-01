@@ -1,5 +1,6 @@
 /**
  * MEMBER RECORD SCREEN
+ * Used by MemberNavigator (oem_teleoperator role).
  * Full camera experience with gamification overlay
  * Based on CameraScreen.tsx but with progress tracking and celebrations
  */
