@@ -12,18 +12,22 @@ The application consists of two main portals:
 ## User Roles
 
 ### Platform Administration
+
 - **admin**: SuperVolcano operational admin, full system access
 - **superadmin**: SuperVolcano engineering/root access, highest privileges
 
 ### B2B: OEM Robotics Testing
+
 - **partner_manager**: OEM company manager, assigns robot tests, manages teleoperators
 - **oem_teleoperator**: OEM worker, operates robots remotely at test locations
 
 ### B2C: Property Management
+
 - **location_owner**: Property owner/manager, assigns cleaning tasks, manages cleaners
 - **location_cleaner**: Cleaning worker, performs cleaning tasks at assigned properties
 
 ### Organization Assignment
+
 - Admins belong to `sv:internal` (SuperVolcano organization)
 - Partner Managers & OEM Teleoperators belong to OEM partner orgs (`oem:company-slug`)
 - Location Owners & Property Cleaners belong to property owner orgs (`owner:owner-slug`)
@@ -50,14 +54,21 @@ SuperVolcano uses a **dual-database architecture**:
 1. **Install dependencies**
 
    ```
-   pnpm install
+   npm install
    ```
 
-   > npm and yarn also work if preferred.
+   This also installs Git hooks via Husky. After pulling changes from
+   another contributor, re-run `npm install` if hooks fail to fire.
+
+2. **Configure environment**
+
+   Copy `.env.example` to `.env.local` and fill in real values. The web
+   app validates required env vars at boot — see `src/lib/env.ts`.
 
 ## Environment Variables
 
-Create a `.env.local` file at the project root with the following variables:
+See `.env.example` for the complete list. Required at minimum for local
+dev:
 
 ### Required Variables
 
@@ -182,6 +193,7 @@ See `SECURITY_AUDIT.md` for security checklist and best practices.
 ## Key Features
 
 ### Admin Portal (`/admin`)
+
 - **Organizations**: Create and manage customer organizations with primary managers
 - **Locations**: Create locations, assign to organizations, manage tasks and instructions
 - **Tasks**: Create tasks with detailed instructions (text, images, videos)
@@ -189,6 +201,7 @@ See `SECURITY_AUDIT.md` for security checklist and best practices.
 - **Analytics**: View organization performance metrics
 
 ### Organization Portal (`/org`)
+
 - **Dashboard**: Role-based views (analytics for managers, task-focused for field workers)
 - **Locations**: View assigned locations with tasks and instructions
 - **Task Completion**: Field workers (oem_teleoperator, location_cleaner) can complete tasks with detailed tracking
@@ -197,6 +210,7 @@ See `SECURITY_AUDIT.md` for security checklist and best practices.
 - **Team View**: Managers can view all team members and their stats
 
 ### Task Management
+
 - **Recurring Tasks**: Tasks can be completed multiple times
 - **Completion History**: View all completions for a task with details
 - **Session-Based**: Completions automatically grouped into daily sessions
@@ -254,6 +268,7 @@ npm run reset:password <email>
 ### Other Platforms
 
 The application can be deployed to any platform that supports Next.js:
+
 - Vercel (recommended)
 - Netlify
 - AWS Amplify
@@ -273,21 +288,25 @@ The application can be deployed to any platform that supports Next.js:
 ### Common Issues
 
 **Build Errors**
+
 - Check TypeScript errors: `npm run build`
 - Verify all imports are correct
 - Ensure environment variables are set
 
 **Authentication Issues**
+
 - Verify Firebase Auth is enabled
 - Check custom claims are set correctly
 - Ensure user has required role
 
 **Permission Denied Errors**
+
 - Verify Firestore rules are deployed
 - Check user's organizationId matches data
 - Review security rules in Firebase Console
 
 **Missing Indexes**
+
 - Follow error message link to create index
 - Or add to `firestore.indexes.json` and deploy
 

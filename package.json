@@ -20,7 +20,16 @@
     "create:org-manager": "tsx scripts/create-org-manager.ts",
     "assign:manager": "tsx scripts/assign-manager-to-org.ts",
     "reset:password": "tsx scripts/reset-teleoperator-password.ts",
-    "db:schema": "tsx scripts/run-schema.ts"
+    "db:schema": "tsx scripts/run-schema.ts",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "prettier --write"
+    ],
+    "*.{json,md,css,yml,yaml}": [
+      "prettier --write"
+    ]
   },
   "dependencies": {
     "@google-cloud/video-intelligence": "^6.2.1",
@@ -66,6 +75,8 @@
     "eslint": "^8.57.0",
     "eslint-config-next": "14.2.11",
     "firebase-tools": "^14.26.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
     "postcss": "^8.4.47",
     "prettier": "^3.3.3",
     "tailwindcss": "^3.4.13",
