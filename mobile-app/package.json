@@ -45,7 +45,6 @@
     "firebase": "^12.6.0",
     "lucide-react-native": "^0.555.0",
     "react": "19.1.0",
-    "react-devtools-core": "^7.0.1",
     "react-dom": "19.1.0",
     "react-freeze": "^1.0.4",
     "react-native": "0.81.5",
