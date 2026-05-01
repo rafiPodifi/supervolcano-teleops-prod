@@ -30,7 +30,7 @@ The code has been pushed to GitHub. Wait ~2 minutes for Vercel to deploy.
 ### Step 3: Verify Robot API
 ```bash
 curl -X GET "https://supervolcano-teleops.vercel.app/api/robot/jobs" \
-  -H "X-Robot-API-Key: 9c5eff2e114ebed6a5f93f132cfb9adb7f2dc9c551c9451aa6360237d699284ef"
+  -H "X-Robot-API-Key: <YOUR_ROBOT_API_KEY>"
 ```
 
 Should return jobs with video URLs.

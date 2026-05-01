@@ -7,14 +7,14 @@
 **Problem:** API key is incorrect or missing.
 
 **Solution:**
-- Verify the API key is correct: `9c5eff2e114ebed6a5f93f132cfb9adb7f2dc9c551c9451aa6360237d699284ef`
+- Verify the API key is correct: `<YOUR_ROBOT_API_KEY>`
 - Check the header name is exactly: `X-Robot-API-Key`
 - Ensure there are no extra spaces or newlines in the key
 
 **Test:**
 ```bash
 curl -X GET "https://supervolcano-teleops.vercel.app/api/robot/health" \
-  -H "X-Robot-API-Key: 9c5eff2e114ebed6a5f93f132cfb9adb7f2dc9c551c9451aa6360237d699284ef"
+  -H "X-Robot-API-Key: <YOUR_ROBOT_API_KEY>"
 ```
 
 ---
@@ -179,7 +179,7 @@ Run this to verify everything is working:
 
 ```bash
 #!/bin/bash
-API_KEY="9c5eff2e114ebed6a5f93f132cfb9adb7f2dc9c551c9451aa6360237d699284ef"
+API_KEY="<YOUR_ROBOT_API_KEY>"
 BASE_URL="https://supervolcano-teleops.vercel.app/api/robot"
 
 echo "Testing health endpoint..."

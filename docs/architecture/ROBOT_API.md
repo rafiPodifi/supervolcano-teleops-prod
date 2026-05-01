@@ -429,21 +429,21 @@ curl -X GET "$BASE_URL/jobs?limit=5" \
 
 ```bash
 curl -X GET "https://supervolcano-teleops.vercel.app/api/robot/health" \
-  -H "X-Robot-API-Key: 9c5eff2e114ebed6a5f93f132cfb9adb7f2dc9c551c9451aa6360237d699284ef"
+  -H "X-Robot-API-Key: <YOUR_ROBOT_API_KEY>"
 ```
 
 2. **Get sample jobs:**
 
 ```bash
 curl -X GET "https://supervolcano-teleops.vercel.app/api/robot/jobs?limit=3" \
-  -H "X-Robot-API-Key: 9c5eff2e114ebed6a5f93f132cfb9adb7f2dc9c551c9451aa6360237d699284ef"
+  -H "X-Robot-API-Key: <YOUR_ROBOT_API_KEY>"
 ```
 
 3. **Copy a job ID from response and get its videos:**
 
 ```bash
 curl -X GET "https://supervolcano-teleops.vercel.app/api/robot/jobs/YOUR_JOB_ID/videos" \
-  -H "X-Robot-API-Key: 9c5eff2e114ebed6a5f93f132cfb9adb7f2dc9c551c9451aa6360237d699284ef"
+  -H "X-Robot-API-Key: <YOUR_ROBOT_API_KEY>"
 ```
 
 4. **Open a video URL in browser to verify it plays**

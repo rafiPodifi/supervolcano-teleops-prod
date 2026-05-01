@@ -43,7 +43,7 @@ SuperVolcano uses a **dual-database architecture**:
 - **Firestore** (Source of Truth): All human-facing endpoints (admin portal, organization portal, mobile apps)
 - **PostgreSQL** (Read-Only Replica): Robot-facing endpoints only (`/api/robot/v1/*`)
 
-**Important:** Admin and organization endpoints should ONLY query Firestore. PostgreSQL is reserved for robot API endpoints. See [ARCHITECTURE.md](./ARCHITECTURE.md) for details.
+**Important:** Admin and organization endpoints should ONLY query Firestore. PostgreSQL is reserved for robot API endpoints. See [docs/architecture/ARCHITECTURE.md](./docs/architecture/ARCHITECTURE.md) for details.
 
 ### Getting Started
 

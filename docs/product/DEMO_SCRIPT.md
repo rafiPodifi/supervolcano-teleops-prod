@@ -10,7 +10,7 @@ curl -X POST https://supervolcano-teleops.vercel.app/api/admin/sync
 2. **Test API responds:**
 ```bash
 curl -X GET "https://supervolcano-teleops.vercel.app/api/robot/health" \
-  -H "X-Robot-API-Key: 9c5eff2e114ebed6a5f93f132cfb9adb7f2dc9c551c9451aa6360237d699284ef"
+  -H "X-Robot-API-Key: <YOUR_ROBOT_API_KEY>"
 ```
 
 3. **Verify video URLs work** (open in browser)
@@ -53,7 +53,7 @@ Share screen with ROBOT_API.md open
 
 ```bash
 curl -X GET "https://supervolcano-teleops.vercel.app/api/robot/health" \
-  -H "X-Robot-API-Key: 9c5eff2e114ebed6a5f93f132cfb9adb7f2dc9c551c9451aa6360237d699284ef"
+  -H "X-Robot-API-Key: <YOUR_ROBOT_API_KEY>"
 ```
 
 **Show response:**
@@ -67,7 +67,7 @@ curl -X GET "https://supervolcano-teleops.vercel.app/api/robot/health" \
 
 ```bash
 curl -X GET "https://supervolcano-teleops.vercel.app/api/robot/locations" \
-  -H "X-Robot-API-Key: 9c5eff2e114ebed6a5f93f132cfb9adb7f2dc9c551c9451aa6360237d699284ef"
+  -H "X-Robot-API-Key: <YOUR_ROBOT_API_KEY>"
 ```
 
 **Explain:**
@@ -82,7 +82,7 @@ curl -X GET "https://supervolcano-teleops.vercel.app/api/robot/locations" \
 
 ```bash
 curl -X GET "https://supervolcano-teleops.vercel.app/api/robot/locations/bd577ffe-d733-4002-abb8-9ea047c0f326/jobs" \
-  -H "X-Robot-API-Key: 9c5eff2e114ebed6a5f93f132cfb9adb7f2dc9c551c9451aa6360237d699284ef"
+  -H "X-Robot-API-Key: <YOUR_ROBOT_API_KEY>"
 ```
 
 **Explain:**
@@ -100,7 +100,7 @@ curl -X GET "https://supervolcano-teleops.vercel.app/api/robot/locations/bd577ff
 
 ```bash
 curl -X GET "https://supervolcano-teleops.vercel.app/api/robot/jobs/JOB_ID/videos" \
-  -H "X-Robot-API-Key: 9c5eff2e114ebed6a5f93f132cfb9adb7f2dc9c551c9451aa6360237d699284ef"
+  -H "X-Robot-API-Key: <YOUR_ROBOT_API_KEY>"
 ```
 
 **Explain:**

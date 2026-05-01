@@ -33,7 +33,7 @@
     },
     {
       "key": "ROBOT_API_KEY",
-      "value": "9c5eff2e114ebed6a5f93f132cfb9adb7f2dc9c551c9451aa6360237d699284ef",
+      "value": "<YOUR_ROBOT_API_KEY>",
       "type": "string"
     },
     {

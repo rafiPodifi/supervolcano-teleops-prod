@@ -89,7 +89,7 @@ Six roles across two business models:
 - `location_owner` — org: `owner:<slug>`, creates and owns their own properties
 - `location_cleaner` — mobile-only field worker
 
-Permission enforcement is centralised in `src/lib/auth/permissions.ts`. Use `requirePermission(user, 'PERMISSION_NAME')` in API routes to enforce access. All GET endpoints filter data based on role — see `ARCHITECTURE.md` for the role-scoping patterns.
+Permission enforcement is centralised in `src/lib/auth/permissions.ts`. Use `requirePermission(user, 'PERMISSION_NAME')` in API routes to enforce access. All GET endpoints filter data based on role — see `docs/architecture/ARCHITECTURE.md` for the role-scoping patterns.
 
 ### Web Data Layer
 

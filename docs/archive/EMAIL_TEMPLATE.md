@@ -14,13 +14,13 @@ Hi [Name],
 Looking forward to our demo tomorrow! Here's everything you need to test our API:
 
 **API Key:**
-9c5eff2e114ebed6a5f93f132cfb9adb7f2dc9c551c9451aa6360237d699284ef
+<YOUR_ROBOT_API_KEY>
 
 **Quick Test (30 seconds):**
 
 ```bash
 curl -X GET "https://supervolcano-teleops.vercel.app/api/robot/jobs" \
-  -H "X-Robot-API-Key: 9c5eff2e114ebed6a5f93f132cfb9adb7f2dc9c551c9451aa6360237d699284ef"
+  -H "X-Robot-API-Key: <YOUR_ROBOT_API_KEY>"
 ```
 
 **Full Documentation:**
@@ -64,12 +64,12 @@ Hi [Name],
 
 Here's your API access for tomorrow's demo:
 
-**API Key:** 9c5eff2e114ebed6a5f93f132cfb9adb7f2dc9c551c9451aa6360237d699284ef
+**API Key:** <YOUR_ROBOT_API_KEY>
 **Base URL:** https://supervolcano-teleops.vercel.app/api/robot
 
 **Quick Test:**
 curl -X GET "https://supervolcano-teleops.vercel.app/api/robot/health" \
-  -H "X-Robot-API-Key: 9c5eff2e114ebed6a5f93f132cfb9adb7f2dc9c551c9451aa6360237d699284ef"
+  -H "X-Robot-API-Key: <YOUR_ROBOT_API_KEY>"
 
 **Full docs attached.** See you tomorrow!
 
