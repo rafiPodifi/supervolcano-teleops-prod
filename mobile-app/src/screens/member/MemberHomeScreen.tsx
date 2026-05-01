@@ -74,7 +74,7 @@ export default function MemberHomeScreen() {
         </TouchableOpacity>
       </View>
       
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.scrollView} contentContainerStyle={[styles.scrollContent, { paddingBottom: 40 + insets.bottom }]} showsVerticalScrollIndicator={false}>
         {/* Hero Card */}
         <Animated.View style={[styles.heroCard, { transform: [{ scale: cardScale }], opacity: cardOpacity }]}>
           <LinearGradient

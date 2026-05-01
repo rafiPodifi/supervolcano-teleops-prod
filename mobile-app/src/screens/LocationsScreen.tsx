@@ -179,7 +179,7 @@ export default function LocationsScreen({ navigation }: any) {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <Toast
         visible={toast.visible}
         message={toast.message}

@@ -171,7 +171,7 @@ export default function OwnerHomeScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       {renderHeader()}
       
       <FlatList

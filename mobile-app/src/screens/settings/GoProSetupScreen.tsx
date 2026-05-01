@@ -4,10 +4,11 @@
  */
 
 import React from 'react';
-import { 
-  View, Text, TouchableOpacity, FlatList, 
-  ActivityIndicator, StyleSheet, Alert 
+import {
+  View, Text, TouchableOpacity, FlatList,
+  ActivityIndicator, StyleSheet, Alert
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Camera, Bluetooth, Check, X } from 'lucide-react-native';
 import { useGoPro } from '../../contexts/GoProContext';
 
@@ -45,7 +46,7 @@ export default function GoProSetupScreen({ navigation }: any) {
   };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.iconContainer}>
@@ -147,7 +148,7 @@ export default function GoProSetupScreen({ navigation }: any) {
           </View>
         </>
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 
