@@ -30,7 +30,6 @@ This document summarizes current issues in the mobile app and a prioritized reme
 - Mixed data-access patterns (direct Firestore + API calls) without a unified client.
 - Offline detection relies on error string matching instead of explicit network state.
 - Two camera stacks are configured (expo-camera and vision-camera), inflating size and permissions.
-- BLE/background permissions declared while GoPro flow is disabled in Expo Go.
 - No automated tests or telemetry beyond a manual storage test helper.
 
 ### P3 - Low Priority

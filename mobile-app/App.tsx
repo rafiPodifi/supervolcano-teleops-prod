@@ -10,9 +10,6 @@ import { NavigationContainer } from '@react-navigation/native';
 import { View, Text, StyleSheet } from 'react-native';
 import { AuthProvider } from './src/contexts/AuthContext';
 import { PRODUCTION_FATAL_ERROR_COPY } from './src/utils/user-facing-error';
-// TEMPORARILY DISABLED FOR EXPO GO TESTING
-// BLE library (react-native-ble-plx) doesn't work in Expo Go - requires native build
-// import { GoProProvider } from './src/contexts/GoProContext';
 import AppNavigator from './src/navigation/AppNavigator';
 
 // Error Boundary Component
@@ -55,12 +52,9 @@ export default function App() {
   return (
     <ErrorBoundary>
       <AuthProvider>
-        {/* TEMPORARILY DISABLED FOR EXPO GO TESTING */}
-        {/* <GoProProvider> */}
         <NavigationContainer>
           <AppNavigator />
         </NavigationContainer>
-        {/* </GoProProvider> */}
       </AuthProvider>
     </ErrorBoundary>
   );

@@ -40,13 +40,13 @@ Following the April 13th team meeting, this report has been updated to reflect n
 
 * An automatic recording shut-off after 15 minutes of inactivity will prevent accidental footage capture.
 
-* The GoPro provider code should be removed from the codebase as it is no longer relevant.
+* The GoPro provider code has been removed from the codebase (resolved).
 
 * A staging environment and improved CI/CD deployment pipeline will be set up alongside production.
 
 * Sameer will coordinate pickup of 1–2 camera units from Tony for testing.
 
-There are now **47 total items** identified across both components. Seven are launch blockers. Thirteen are high-priority items. The rest form a healthy pre/post-launch backlog.
+There are now **46 total items** identified across both components. Seven are launch blockers. Thirteen are high-priority items. The rest form a healthy pre/post-launch backlog.
 
 # **Part 1 — Mobile App (Android)**
 
@@ -80,7 +80,7 @@ These seven issues are serious risks that should be fixed before or immediately 
 | [ ] | **8** | **Automatic inactivity shut-off (NEW — from April 13 meeting)** To prevent workers accidentally leaving a recording running, the app should automatically stop recording after 15 minutes of no activity. The default duration should be configurable remotely. | *MemberRecordScreen.tsx (new)* |
 | [ ] | **9** | **Video file has no file extension** Recorded video files are saved without the .mp4 extension, which can cause problems when uploading or playing back the file. | *MemberRecordScreen.tsx :239* |
 | [ ] | **10** | **Stopping a recording that never started causes confusion** If the app tries to stop a recording that was never started, it incorrectly marks itself as not recording, hiding the true session state. | *MemberRecordScreen.tsx :281–300* |
-| [ ] | **11** | **Remove GoPro provider code (from April 13 meeting)** There is leftover GoPro integration code no longer in use. The team agreed it should be removed to keep the codebase clean. | *App.tsx* |
+| [x] | **11** | **Remove GoPro provider code (from April 13 meeting)** There is leftover GoPro integration code no longer in use. The team agreed it should be removed to keep the codebase clean. | *App.tsx* |
 | [x] | **12** | **Uploads restart after reconnection (from April 13 meeting)** If a worker loses internet mid-upload and reconnects, the upload should automatically restart. The team confirmed this will definitely happen in the field. | *upload-queue.service.ts* |
 | [ ] | **13** | **Offline recording mode (NEW — from April 13 meeting)** Workers without internet cannot see their assigned tasks. A 'generic record session' feature will allow recording without a task, with location tagging at upload time. This should be available even when online. Aulia will prepare a mockup before development. | *New feature* |
 | [x] | **14** | **Recording quality hardcoded** Camera quality and audio settings are fixed in the code. These should be adjustable without releasing a new app version. | *MemberRecordScreen.tsx :256–258* |
@@ -108,7 +108,6 @@ These are polish and best-practice improvements to work through over time.
 | :---- | :---- | :---- | :---- |
 | [ ] | **23** | **Developer logs printing on every screen update** The app logs a message every time the recording screen refreshes. All developer logs should be removed or hidden in production builds. | *App.tsx :60, MemberRecordScreen.tsx :91* |
 | [ ] | **24** | **No app versioning strategy** The app is at version 1.0.1 with no automated version-bumping process. A clear versioning and build pipeline should be established. | *app.json, build.gradle* |
-| [ ] | **25** | **GoPro provider tree position to verify on re-enable** If GoPro support is added in the future, its component needs to be placed correctly in the app's tree. | *App.tsx* |
 
 # **Part 2 — Web Dashboard**
 
@@ -172,11 +171,11 @@ The table below consolidates all findings across both components.
 
 | Component | P0 Critical | P1 High | P2 Medium | P3 Low |
 | :---- | :---- | :---- | :---- | :---- |
-| **Mobile App (Android)** | **4** | **7** | **9** | **5** |
+| **Mobile App (Android)** | **4** | **7** | **9** | **4** |
 | **Web Dashboard** | **3** | **6** | **7** | **6** |
-| **TOTAL** | **7** | **13** | **16** | **11** |
+| **TOTAL** | **7** | **13** | **16** | **10** |
 
-*Total: 47 items across both components (updated from 46 to reflect new items agreed in the April 13 meeting).*
+*Total: 46 items across both components.*
 
 # **Next Steps (Agreed April 13, 2026\)**
 
