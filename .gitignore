@@ -11,6 +11,8 @@ AGENTS.MD
 .next/
 out/
 dist/
+tsconfig.tsbuildinfo
+*.tsbuildinfo
 email-chain/
 
 bug-reports/

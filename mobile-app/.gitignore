@@ -1,3 +1,41 @@
-.env.local
+# dependencies
 node_modules/
+
+# expo
 .expo/
+.expo-shared/
+web-build/
+
+# env & secrets
+.env
+.env.local
+.env.*
+*.env
+
+# native build outputs
+ios/Pods/
+ios/build/
+ios/*.xcworkspace/xcuserdata/
+android/build/
+android/app/build/
+android/.gradle/
+android/local.properties
+
+# signing
+*.jks
+*.keystore
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# misc
+.DS_Store
+*.orig.*
+dist/
