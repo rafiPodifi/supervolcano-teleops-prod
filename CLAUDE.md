@@ -5,6 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Repository Layout
 
 This is a monorepo with three components:
+
 - **`/src`** — Next.js 14 (App Router) web dashboard (root-level Next.js project)
 - **`/mobile-app`** — Expo/React Native Android app for field workers
 - **`/functions`** — Firebase Cloud Functions
@@ -16,21 +17,26 @@ This is a monorepo with three components:
 Run from the repository root.
 
 ```bash
-npm run dev          # Start Next.js dev server (localhost:3000)
-npm run build        # Type-check + production build
-npm run lint         # ESLint (next/core-web-vitals)
-npm run format       # Prettier across all files
+pnpm run dev         # Start Next.js dev server (localhost:3000)
+pnpm run build       # Type-check + production build
+pnpm run lint        # ESLint (next/core-web-vitals)
+pnpm run format      # Prettier across all files
 
 # Admin utilities (run against live Firebase)
-npm run set-admin                            # Promote user to admin
-npm run create:org-manager <email> <pw>      # Create an org manager
-npm run create:teleoperator <email> <pw> <orgId>
-npm run assign:manager "<org name>" <email> <pw>
-npm run db:schema                            # Apply PostgreSQL schema
-npm run deploy-rules                         # Deploy Firebase security rules
+pnpm run set-admin                            # Promote user to admin
+pnpm run create:org-manager <email> <pw>      # Create an org manager
+pnpm run create:teleoperator <email> <pw> <orgId>
+pnpm run assign:manager "<org name>" <email> <pw>
+pnpm run db:schema                            # Apply PostgreSQL schema
+pnpm run deploy-rules                         # Deploy Firebase security rules
 ```
 
-There are no automated tests. `npm run build` is the closest to a CI check.
+Both the web project and `mobile-app/` use pnpm (pinned via `packageManager`
+field). Run `corepack enable` once so the pinned pnpm version is used
+automatically. `functions/` still uses npm — pnpm migration there is
+tracked separately.
+
+There are no automated tests. `pnpm run build` is the closest to a CI check.
 
 ---
 
@@ -39,14 +45,14 @@ There are no automated tests. `npm run build` is the closest to a CI check.
 Run from `mobile-app/`.
 
 ```bash
-npx expo start            # Start Expo dev server (requires Expo Go or dev client)
-npx expo start --tunnel   # Tunnel mode for physical device on different network
-npx expo run:android      # Build and run on connected Android device/emulator
+pnpm exec expo start            # Start Expo dev server (requires Expo Go or dev client)
+pnpm exec expo start --tunnel   # Tunnel mode for physical device on different network
+pnpm exec expo run:android      # Build and run on connected Android device/emulator
 
 # EAS cloud builds
-npm run eas:build:android   # Android preview build via EAS
-npm run eas:build:ios        # iOS preview build via EAS
-npm run eas:update           # OTA update to preview branch
+pnpm run eas:build:android   # Android preview build via EAS
+pnpm run eas:build:ios       # iOS preview build via EAS
+pnpm run eas:update          # OTA update to preview branch
 ```
 
 The mobile app uses a **custom dev client** (not plain Expo Go) because it includes the native `ExternalCamera` module. After dependency changes, rebuild the dev client.
@@ -59,10 +65,10 @@ The mobile app uses a **custom dev client** (not plain Expo Go) because it inclu
 
 The platform uses a dual-database architecture. **Never mix these:**
 
-| Consumer | Database | How to access |
-|---|---|---|
-| All human-facing endpoints (`/api/admin/*`, `/api/org/*`, `/api/mobile/*`, etc.) | **Firestore** | `import { adminDb } from '@/lib/firebaseAdmin'` |
-| Robot endpoints only (`/api/robot/v1/*`) | **PostgreSQL** | `import { sql } from '@/lib/db/postgres'` |
+| Consumer                                                                         | Database       | How to access                                   |
+| -------------------------------------------------------------------------------- | -------------- | ----------------------------------------------- |
+| All human-facing endpoints (`/api/admin/*`, `/api/org/*`, `/api/mobile/*`, etc.) | **Firestore**  | `import { adminDb } from '@/lib/firebaseAdmin'` |
+| Robot endpoints only (`/api/robot/v1/*`)                                         | **PostgreSQL** | `import { sql } from '@/lib/db/postgres'`       |
 
 PostgreSQL is a read-only replica synced from Firestore via a scheduled job (`/api/cron/sync-sql`, runs daily). Never write to PostgreSQL from application code. Never query PostgreSQL from admin/org endpoints.
 
@@ -81,11 +87,13 @@ Root `/` redirects to `/login` (configured in `next.config.mjs`).
 Six roles across two business models:
 
 **B2B (OEM Robotics Testing):**
+
 - `admin` / `superadmin` — org: `sv:internal`
 - `partner_manager` — org: `oem:<company-slug>`, cannot create locations
 - `oem_teleoperator` — mobile-only field worker
 
 **B2C (Property Management):**
+
 - `location_owner` — org: `owner:<slug>`, creates and owns their own properties
 - `location_cleaner` — mobile-only field worker
 
@@ -114,7 +122,7 @@ Key state tracking pattern in `MemberRecordScreen`: mode and recording state are
 
 Deploy with: `firebase deploy --only firestore:rules,storage:rules --project <project-id>`
 
-Or via the npm script: `npm run deploy-rules`
+Or via the pnpm script: `pnpm run deploy-rules`
 
 ### Environment
 
