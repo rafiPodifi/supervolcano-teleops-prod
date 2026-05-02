@@ -54,11 +54,15 @@ SuperVolcano uses a **dual-database architecture**:
 1. **Install dependencies**
 
    ```
-   npm install
+   pnpm install
    ```
 
    This also installs Git hooks via Husky. After pulling changes from
-   another contributor, re-run `npm install` if hooks fail to fire.
+   another contributor, re-run `pnpm install` if hooks fail to fire.
+
+   The repo pins pnpm via the `packageManager` field. Enable Corepack
+   once with `corepack enable` so the pinned version is used
+   automatically.
 
 2. **Configure environment**
 
@@ -222,10 +226,10 @@ See `SECURITY_AUDIT.md` for security checklist and best practices.
 
 ```bash
 # Install dependencies
-npm install
+pnpm install
 
 # Run development server
-npm run dev
+pnpm run dev
 ```
 
 Visit [http://localhost:3000](http://localhost:3000) and sign in on `/login`.
@@ -234,26 +238,26 @@ Visit [http://localhost:3000](http://localhost:3000) and sign in on `/login`.
 
 ```bash
 # Build the application
-npm run build
+pnpm run build
 
 # Start production server
-npm start
+pnpm start
 ```
 
 ### Create Test Users
 
 ```bash
 # Create an organization manager
-npm run create:org-manager <email> <password> [organizationId]
+pnpm run create:org-manager <email> <password> [organizationId]
 
 # Assign manager to existing organization
-npm run assign:manager "<org name>" <email> <password>
+pnpm run assign:manager "<org name>" <email> <password>
 
 # Create a teleoperator
-npm run create:teleoperator <email> <password> <organizationId>
+pnpm run create:teleoperator <email> <password> <organizationId>
 
 # Reset teleoperator password
-npm run reset:password <email>
+pnpm run reset:password <email>
 ```
 
 ## Deployment
@@ -289,7 +293,7 @@ The application can be deployed to any platform that supports Next.js:
 
 **Build Errors**
 
-- Check TypeScript errors: `npm run build`
+- Check TypeScript errors: `pnpm run build`
 - Verify all imports are correct
 - Ensure environment variables are set
 
@@ -314,7 +318,7 @@ The application can be deployed to any platform that supports Next.js:
 
 1. Create feature branch
 2. Make changes
-3. Run tests: `npm run build`
+3. Run tests: `pnpm run build`
 4. Update documentation
 5. Submit pull request
 

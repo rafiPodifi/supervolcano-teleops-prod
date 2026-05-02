@@ -30,9 +30,9 @@ The owner screens need to be created in `src/screens/owner/`:
 
 ```bash
 cd mobile-app
-npm install react-native-google-places-autocomplete
-npx expo install expo-clipboard
-npm install @react-navigation/bottom-tabs
+pnpm add react-native-google-places-autocomplete
+pnpm exec expo install expo-clipboard
+pnpm add @react-navigation/bottom-tabs
 ```
 
 ### 3. Update App.tsx
@@ -112,4 +112,3 @@ In Firebase Console:
 - Icons use `@expo/vector-icons` (Ionicons) for consistency with existing code
 - Structure API calls need `EXPO_PUBLIC_API_URL` environment variable
 - Google Places requires `EXPO_PUBLIC_GOOGLE_PLACES_API_KEY`
-

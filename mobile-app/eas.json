@@ -26,7 +26,6 @@
         "resourceClass": "m1-medium"
       },
       "env": {
-        "NPM_CONFIG_LEGACY_PEER_DEPS": "true",
         "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyBJd8_A8tH6e2S5WhgwHqoeXIB58WQWDvw",
         "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "super-volcano-oem-portal.firebaseapp.com",
         "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "super-volcano-oem-portal",

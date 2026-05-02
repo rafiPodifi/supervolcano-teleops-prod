@@ -52,10 +52,6 @@
       <key>NSAllowsLocalNetworking</key>
       <true/>
     </dict>
-    <key>NSBluetoothAlwaysUsageDescription</key>
-    <string>Allow SuperVolcano Camera to connect to your GoPro camera</string>
-    <key>NSBluetoothPeripheralUsageDescription</key>
-    <string>SuperVolcano uses Bluetooth to connect to your GoPro camera</string>
     <key>NSCameraUsageDescription</key>
     <string>Allow SuperVolcano to access your camera to record videos.</string>
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
@@ -70,10 +66,8 @@
     <true/>
     <key>UIBackgroundModes</key>
     <array>
-      <string>bluetooth-central</string>
       <string>fetch</string>
       <string>processing</string>
-      <string>bluetooth-peripheral</string>
     </array>
     <key>UILaunchStoryboardName</key>
     <string>SplashScreen</string>
