@@ -6,10 +6,14 @@ import android.view.Gravity
 import android.view.SurfaceHolder
 import com.serenegiant.widget.AspectRatioSurfaceView
 import expo.modules.kotlin.AppContext
+import expo.modules.kotlin.records.Field
+import expo.modules.kotlin.records.Record
 import expo.modules.kotlin.viewevent.EventDispatcher
 import expo.modules.kotlin.views.ExpoView
 
-data class PreviewReadyChangeEvent(val ready: Boolean)
+class PreviewReadyChangeEvent(
+  @Field val ready: Boolean = false,
+) : Record
 
 class ExternalCameraPreviewView(context: Context, appContext: AppContext) :
   ExpoView(context, appContext) {
@@ -24,8 +28,12 @@ class ExternalCameraPreviewView(context: Context, appContext: AppContext) :
     setAspectRatio(16, 9)
   }
 
+  @Volatile
+  private var attachedToWindow: Boolean = false
+
   private val surfaceCallback = object : SurfaceHolder.Callback {
     override fun surfaceCreated(holder: SurfaceHolder) {
+      if (!attachedToWindow) return
       ExternalCameraController.get(this@ExternalCameraPreviewView.context)
         .onPreviewSurfaceCreated(this@ExternalCameraPreviewView, holder.surface)
     }
@@ -42,16 +50,20 @@ class ExternalCameraPreviewView(context: Context, appContext: AppContext) :
     setBackgroundColor(Color.BLACK)
     gravity = Gravity.CENTER
     addView(surfaceView)
-    surfaceView.holder.addCallback(surfaceCallback)
   }
 
   override fun onAttachedToWindow() {
     super.onAttachedToWindow()
+    attachedToWindow = true
+    surfaceView.holder.removeCallback(surfaceCallback)
+    surfaceView.holder.addCallback(surfaceCallback)
     ExternalCameraController.get(context).attachPreviewView(this)
   }
 
   override fun onDetachedFromWindow() {
     super.onDetachedFromWindow()
+    attachedToWindow = false
+    surfaceView.holder.removeCallback(surfaceCallback)
     ExternalCameraController.get(context).detachPreviewView(this)
   }
 

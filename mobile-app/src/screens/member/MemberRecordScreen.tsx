@@ -269,7 +269,7 @@ export default function MemberRecordScreen() {
     }
 
     const subscription = ExternalCamera.addRecordingStateListener((event) => {
-      if (!isExternalModeRef.current) {
+      if (!isExternalModeRef.current || !isRecordingRef.current) {
         return;
       }
 
@@ -485,9 +485,6 @@ export default function MemberRecordScreen() {
 
   const revertToPreviousMode = useCallback(() => {
     const previousMode = previousModeRef.current;
-    if (previousMode === "native") {
-      setNativeCameraMountKey((currentKey) => currentKey + 1);
-    }
     setCameraMode(previousMode);
     if (ExternalCamera.isSupported) {
       ExternalCamera.setExternalModeEnabled(previousMode === "external").catch(
@@ -562,7 +559,6 @@ export default function MemberRecordScreen() {
           endModeTransition();
         }
       } else {
-        setNativeCameraMountKey((currentKey) => currentKey + 1);
         setCameraMode(mode);
         if (ExternalCamera.isSupported) {
           ExternalCamera.setExternalModeEnabled(false)

@@ -36,13 +36,13 @@ class ExternalCameraController private constructor(
   fun start(sink: EventSink) {
     this.sink = sink
     usbMonitor.start()
-    mainHandler.post { backend.start() }
+    mainHandler.post { backend.init() }
     refreshStatus(emit = true)
   }
 
   fun stop() {
     usbMonitor.stop()
-    mainHandler.post { backend.stop() }
+    mainHandler.post { backend.release() }
     sink = null
   }
 
@@ -97,7 +97,17 @@ class ExternalCameraController private constructor(
   fun setExternalModeEnabled(enabled: Boolean) {
     externalModeEnabled = enabled
     updateStatus { it.copy(externalModeEnabled = enabled) }
-    if (enabled) tryConnect() else mainHandler.post { backend.stop(); backend.start() }
+    if (enabled) {
+      tryConnect()
+    } else {
+      mainHandler.post { backend.closeCamera() }
+      updateStatus {
+        it.copy(
+          connectionPhase = null,
+          sessionState = SessionState.Inactive,
+        )
+      }
+    }
   }
 
   fun retryPreview() {
