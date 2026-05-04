@@ -1,5 +1,6 @@
 import { Platform } from "react-native";
 import { requireOptionalNativeModule } from "expo-modules-core";
+import { normalizeLocalFilePath } from "@/utils/local-file-uri";
 
 export type ExternalCameraFacing = "front" | "back" | "external" | "unknown";
 export type ExternalCameraSessionState =
@@ -227,7 +228,10 @@ export const ExternalCamera = {
     if (!NativeExternalCameraModule) {
       return;
     }
-    await NativeExternalCameraModule.startRecording(outputPath, options ?? {});
+    // Native expects a raw filesystem path (no file:// scheme); MediaMuxer
+    // ENOENTs if it sees the URI form.
+    const nativePath = normalizeLocalFilePath(outputPath);
+    await NativeExternalCameraModule.startRecording(nativePath, options ?? {});
   },
 
   async stopRecording(): Promise<void> {

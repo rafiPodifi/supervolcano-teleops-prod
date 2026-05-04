@@ -54,6 +54,8 @@ import {
 import { normalizeLocalFileUri } from "../../utils/local-file-uri";
 import { getFriendlyErrorCopy } from "../../utils/user-facing-error";
 import * as FileSystem from "expo-file-system/legacy";
+import { UploadQueueService } from "../../services/upload-queue.service";
+import { ExternalRecordingListener } from "../../services/external-recording-listener.service";
 
 type NavigationProp = NativeStackNavigationProp<MemberStackParamList>;
 
@@ -61,6 +63,66 @@ const HOURS_FOR_REWARD = 10;
 const SEGMENT_DURATION = 300; // 5 minutes
 const MODE_SWITCH_TIMEOUT_MS = 25000;
 const MODE_SWITCH_CANCEL_REVEAL_MS = 5000;
+
+function mapExternalRecordingError(message?: string): {
+  title: string;
+  message: string;
+} {
+  switch (message) {
+    case "encoder":
+    case "muxer":
+      return {
+        title: "Recording failed",
+        message: "Recording could not be saved. Please try again.",
+      };
+    case "file_io":
+      return {
+        title: "Recording failed",
+        message:
+          "Couldn't write the recording to storage. Free some space and try again.",
+      };
+    case "recording_in_progress":
+      return {
+        title: "Recording failed",
+        message:
+          "A previous recording is still finalizing. Please wait and try again.",
+      };
+    case "invalid_camera":
+      return {
+        title: "Recording failed",
+        message: "Camera is no longer available. Reconnect and try again.",
+      };
+    case "recording_too_short":
+      return {
+        title: "Recording too short",
+        message: "Hold record for a moment longer next time.",
+      };
+    case "camera_no_frames":
+      return {
+        title: "Recording failed",
+        message:
+          "Camera connected but didn't send any video frames. Try unplugging and reconnecting.",
+      };
+    case "video_format_never_locked":
+      return {
+        title: "Recording failed",
+        message:
+          "Camera couldn't negotiate a video format. Try a different USB cable or camera.",
+      };
+    case "muxer_failed_to_start":
+    case "recording_produced_no_output":
+      return {
+        title: "Recording failed",
+        message:
+          "Recording could not be saved. Please try again — if the problem continues, reconnect the camera.",
+      };
+    default:
+      return {
+        title: "Recording failed",
+        message: message ?? "Recording stopped unexpectedly. Please try again.",
+      };
+  }
+}
 
 // Gentle encouragement that rotates
 const ENCOURAGEMENTS = [
@@ -141,6 +203,8 @@ export default function MemberRecordScreen() {
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const encouragementRef = useRef<NodeJS.Timeout | null>(null);
   const isRecordingRef = useRef(isRecording);
+  const segmentNumberRef = useRef(0);
+  const recordingStartedAtRef = useRef<string | null>(null);
   const [isCancelAvailable, setIsCancelAvailable] = useState(false);
   const modeSwitchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -268,40 +332,6 @@ export default function MemberRecordScreen() {
       return;
     }
 
-    const subscription = ExternalCamera.addRecordingStateListener((event) => {
-      if (!isExternalModeRef.current || !isRecordingRef.current) {
-        return;
-      }
-
-      if (event.state === "finalized") {
-        setIsRecording(false);
-        if (event.filePath) {
-          console.log(
-            "[MemberRecord] External video saved:",
-            normalizeLocalFileUri(event.filePath),
-          );
-        }
-      }
-
-      if (event.state === "error") {
-        console.error(
-          "[MemberRecord] External recording error:",
-          event.message,
-        );
-        setIsRecording(false);
-      }
-    });
-
-    return () => {
-      subscription?.remove();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!ExternalCamera.isSupported) {
-      return;
-    }
-
     const subscription = ExternalCamera.addUsbDetachListener(() => {
       if (!isExternalModeRef.current) {
         return;
@@ -316,8 +346,23 @@ export default function MemberRecordScreen() {
       }
     });
 
+    ExternalRecordingListener.setErrorHandler((message) => {
+      if (!isRecordingRef.current) {
+        return;
+      }
+      setIsRecording(false);
+      recordingStartedAtRef.current = null;
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      const friendly = mapExternalRecordingError(message);
+      Alert.alert(friendly.title, friendly.message);
+    });
+
     return () => {
       subscription?.remove();
+      ExternalRecordingListener.setErrorHandler(null);
     };
   }, []);
 
@@ -340,14 +385,37 @@ export default function MemberRecordScreen() {
 
   const createExternalRecordingPath = useCallback(async (): Promise<string> => {
     const recordingsDir = await ensureExternalRecordingDirectory();
-    const filename = `external-${Date.now()}`;
+    const filename = `external-${Date.now()}.mp4`;
     return `${recordingsDir}${filename}`;
   }, [ensureExternalRecordingDirectory]);
+
+  const enqueueRecording = useCallback(async (videoUri: string) => {
+    const startedAt = recordingStartedAtRef.current ?? new Date().toISOString();
+    const endedAt = new Date().toISOString();
+    segmentNumberRef.current += 1;
+
+    try {
+      await UploadQueueService.addToQueue(videoUri, {
+        jobTitle: "Generic recording",
+        segmentNumber: segmentNumberRef.current,
+        startedAt,
+        endedAt,
+        recordingMode: "generic",
+      });
+    } catch (error) {
+      console.error("[MemberRecord] Failed to queue recording:", error);
+      const friendly = getFriendlyErrorCopy(error, "queue");
+      Alert.alert(friendly.title, friendly.message);
+    } finally {
+      recordingStartedAtRef.current = null;
+    }
+  }, []);
 
   const startRecording = useCallback(async () => {
     try {
       resetMilestones();
       setElapsedSeconds(0);
+      recordingStartedAtRef.current = new Date().toISOString();
 
       if (isExternalModeRef.current) {
         if (!ExternalCamera.isSupported) {
@@ -370,6 +438,19 @@ export default function MemberRecordScreen() {
               externalCamera.selectedProfile,
             )
           : recordingConfig.externalCamera.quality;
+        ExternalRecordingListener.beginSegment({
+          jobTitle: "Generic recording",
+          recordingMode: "generic",
+          startedAt: recordingStartedAtRef.current ?? new Date().toISOString(),
+        });
+        console.log(
+          "[MemberRecord] external startRecording:",
+          JSON.stringify({
+            outputPath,
+            enableAudio: recordingConfig.externalCamera.enableAudio,
+            quality: effectiveQuality,
+          }),
+        );
         await ExternalCamera.startRecording(outputPath, {
           enableAudio: recordingConfig.externalCamera.enableAudio,
           quality: effectiveQuality,
@@ -381,17 +462,19 @@ export default function MemberRecordScreen() {
 
       setIsRecording(true);
       cameraRef.current.startRecording({
-        onRecordingFinished: (video) => {
+        onRecordingFinished: (video: VideoFile) => {
           console.log("[MemberRecord] Video saved:", video.path);
-          // TODO: Upload to Firebase Storage, update hoursUploaded
+          void enqueueRecording(normalizeLocalFileUri(video.path));
         },
         onRecordingError: (error) => {
           console.error("[MemberRecord] Recording error:", error);
+          recordingStartedAtRef.current = null;
         },
         fileType: "mp4",
       });
     } catch (error) {
       setIsRecording(false);
+      recordingStartedAtRef.current = null;
       console.error("[MemberRecord] Start error:", error);
     }
   }, [
@@ -399,12 +482,20 @@ export default function MemberRecordScreen() {
     resetMilestones,
     recordingConfig,
     externalCamera,
+    enqueueRecording,
   ]);
 
   const stopRecording = async (navigateToComplete: boolean = true) => {
     try {
       if (isExternalModeRef.current) {
+        console.log("[MemberRecord] stopRecording: external mode");
+        const terminal = ExternalRecordingListener.awaitNextTerminal(5000);
         await ExternalCamera.stopRecording();
+        const outcome = await terminal;
+        console.log(
+          "[MemberRecord] external stopRecording terminal:",
+          JSON.stringify(outcome),
+        );
       } else {
         if (!cameraRef.current || !isRecording) return;
         await cameraRef.current.stopRecording();
@@ -413,7 +504,6 @@ export default function MemberRecordScreen() {
       if (timerRef.current) clearInterval(timerRef.current);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-      // Navigate to completion screen after stopping
       if (navigateToComplete) {
         navigation.replace("SessionComplete", {
           sessionMinutes: Math.floor(elapsedSeconds / 60),

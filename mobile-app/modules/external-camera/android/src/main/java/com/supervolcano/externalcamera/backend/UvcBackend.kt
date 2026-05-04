@@ -8,7 +8,9 @@ import android.util.Log
 import com.herohan.uvcapp.CameraException
 import com.herohan.uvcapp.CameraHelper
 import com.herohan.uvcapp.ICameraHelper
+import com.herohan.uvcapp.VideoCapture
 import com.serenegiant.usb.Size
+import java.io.File
 import com.supervolcano.externalcamera.AttemptedProfile
 import com.supervolcano.externalcamera.OfferedFormat
 import com.supervolcano.externalcamera.SelectedProfile
@@ -107,6 +109,9 @@ class UvcBackend(
       return
     }
     transition(State.STOPPING)
+    runCatching {
+      if (helper.isRecording) helper.stopRecording()
+    }.onFailure { Log.w(TAG, "stopRecording threw during close", it) }
     runCatching { helper.stopPreview() }
       .onFailure { Log.w(TAG, "stopPreview threw", it) }
     attachedSurface?.let { surface ->
@@ -228,6 +233,56 @@ class UvcBackend(
       Log.e(TAG, "attachSurface failed", e)
       listener.onBackendError("attach_surface_failed:${e.javaClass.simpleName}:${e.message}")
     }
+  }
+
+  interface RecordingCallback {
+    fun onStart()
+    fun onSaved(savedFile: File)
+    fun onError(code: Int, message: String?)
+  }
+
+  fun isRecording(): Boolean = cameraHelper?.isRecording == true
+
+  fun startRecording(
+    file: File,
+    audioEnabled: Boolean,
+    fps: Int,
+    callback: RecordingCallback,
+  ) {
+    val helper = cameraHelper ?: throw IllegalStateException("backend_not_started")
+    if (!helper.isCameraOpened) {
+      throw IllegalStateException("camera_not_open_for_recording")
+    }
+    if (state != State.PREVIEW_READY) {
+      throw IllegalStateException("preview_not_ready_state=$state")
+    }
+
+    Log.i(
+      TAG,
+      "startRecording file=${file.absolutePath} audio=$audioEnabled fps=$fps " +
+        "isCameraOpened=${helper.isCameraOpened} isRecordingBefore=${helper.isRecording}"
+    )
+    val options = VideoCapture.OutputFileOptions.Builder(file).build()
+    helper.startRecording(options, object : VideoCapture.OnVideoCaptureCallback {
+      override fun onStart() {
+        Log.d(TAG, "library onStart")
+        callback.onStart()
+      }
+      override fun onVideoSaved(results: VideoCapture.OutputFileResults) {
+        val saved = results.savedUri?.path?.let { File(it) } ?: file
+        Log.d(TAG, "library onVideoSaved path=${saved.absolutePath} size=${saved.length()}")
+        callback.onSaved(saved)
+      }
+      override fun onError(code: Int, message: String, cause: Throwable?) {
+        Log.w(TAG, "library onError code=$code msg=$message", cause)
+        callback.onError(code, message)
+      }
+    })
+  }
+
+  fun stopRecording() {
+    runCatching { cameraHelper?.stopRecording() }
+      .onFailure { Log.w(TAG, "stopRecording threw", it) }
   }
 
   fun detachSurface(surface: Any) {

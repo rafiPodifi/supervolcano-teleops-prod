@@ -5,12 +5,14 @@
  * Last updated: 2025-12-02
  */
 
-import React, { ErrorInfo, Component } from 'react';
-import { NavigationContainer } from '@react-navigation/native';
-import { View, Text, StyleSheet } from 'react-native';
-import { AuthProvider } from './src/contexts/AuthContext';
-import { PRODUCTION_FATAL_ERROR_COPY } from './src/utils/user-facing-error';
-import AppNavigator from './src/navigation/AppNavigator';
+import React, { ErrorInfo, Component, useEffect } from "react";
+import { NavigationContainer } from "@react-navigation/native";
+import { View, Text, StyleSheet } from "react-native";
+import { AuthProvider } from "./src/contexts/AuthContext";
+import { PRODUCTION_FATAL_ERROR_COPY } from "./src/utils/user-facing-error";
+import AppNavigator from "./src/navigation/AppNavigator";
+import { UploadQueueService } from "./src/services/upload-queue.service";
+import { ExternalRecordingListener } from "./src/services/external-recording-listener.service";
 
 // Error Boundary Component
 class ErrorBoundary extends Component<
@@ -27,17 +29,21 @@ class ErrorBoundary extends Component<
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('[ErrorBoundary] Caught error:', error);
-    console.error('[ErrorBoundary] Error info:', errorInfo);
-    console.error('[ErrorBoundary] Stack:', error.stack);
+    console.error("[ErrorBoundary] Caught error:", error);
+    console.error("[ErrorBoundary] Error info:", errorInfo);
+    console.error("[ErrorBoundary] Stack:", error.stack);
   }
 
   render() {
     if (this.state.hasError) {
       return (
         <View style={styles.errorContainer}>
-          <Text style={styles.errorTitle}>{PRODUCTION_FATAL_ERROR_COPY.title}</Text>
-          <Text style={styles.errorHint}>{PRODUCTION_FATAL_ERROR_COPY.message}</Text>
+          <Text style={styles.errorTitle}>
+            {PRODUCTION_FATAL_ERROR_COPY.title}
+          </Text>
+          <Text style={styles.errorHint}>
+            {PRODUCTION_FATAL_ERROR_COPY.message}
+          </Text>
         </View>
       );
     }
@@ -47,8 +53,16 @@ class ErrorBoundary extends Component<
 }
 
 export default function App() {
-  console.log('[App] Initializing...');
-  
+  console.log("[App] Initializing...");
+
+  useEffect(() => {
+    void UploadQueueService.initialize();
+    ExternalRecordingListener.register();
+    return () => {
+      ExternalRecordingListener.unregister();
+    };
+  }, []);
+
   return (
     <ErrorBoundary>
       <AuthProvider>
@@ -63,21 +77,21 @@ export default function App() {
 const styles = StyleSheet.create({
   errorContainer: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#fee2e2',
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fee2e2",
     padding: 24,
   },
   errorTitle: {
     fontSize: 20,
-    fontWeight: '700',
-    color: '#dc2626',
+    fontWeight: "700",
+    color: "#dc2626",
     marginBottom: 8,
   },
   errorHint: {
     fontSize: 14,
-    color: '#991b1b',
-    textAlign: 'center',
+    color: "#991b1b",
+    textAlign: "center",
     marginTop: 8,
     lineHeight: 20,
   },

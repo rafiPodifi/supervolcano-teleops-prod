@@ -9,7 +9,9 @@ import android.os.Looper
 import android.util.Log
 import android.view.Surface
 import androidx.core.content.ContextCompat
+import com.herohan.uvcapp.VideoCapture
 import com.supervolcano.externalcamera.backend.UvcBackend
+import java.io.File
 import java.lang.ref.WeakReference
 
 class ExternalCameraController private constructor(
@@ -114,15 +116,95 @@ class ExternalCameraController private constructor(
     tryConnect()
   }
 
-  fun startRecording(@Suppress("UNUSED_PARAMETER") outputPath: String) {
-    sink?.emit("onRecordingStateChanged", mapOf(
-      "state" to "error",
-      "message" to "Recording not yet implemented (Phase 3)."
-    ))
+  fun startRecording(outputPath: String, options: Map<String, Any?>) {
+    if (backend.isRecording()) {
+      sink?.emit("onRecordingStateChanged", mapOf(
+        "state" to "error",
+        "message" to "recording_in_progress"
+      ))
+      return
+    }
+    val profile = status.selectedProfile
+    if (profile == null || status.connectionPhase != ConnectionPhase.Ready) {
+      sink?.emit("onRecordingStateChanged", mapOf(
+        "state" to "error",
+        "message" to "External camera is not ready to record."
+      ))
+      return
+    }
+
+    val finalPath = if (outputPath.endsWith(".mp4")) outputPath else "$outputPath.mp4"
+    val outFile = File(finalPath).also { it.parentFile?.mkdirs() }
+    val enableAudio = (options["enableAudio"] as? Boolean) ?: true
+    val fps = pickFps(profile)
+
+    val callback = object : UvcBackend.RecordingCallback {
+      override fun onStart() {
+        mainHandler.post {
+          updateStatus { it.copy(connectionPhase = ConnectionPhase.Recording) }
+          sink?.emit("onRecordingStateChanged", mapOf(
+            "state" to "started",
+            "filePath" to finalPath,
+          ))
+        }
+      }
+      override fun onSaved(savedFile: File) {
+        mainHandler.post {
+          if (status.connectionPhase == ConnectionPhase.Recording) {
+            updateStatus { it.copy(connectionPhase = ConnectionPhase.Ready) }
+          }
+          sink?.emit("onRecordingStateChanged", mapOf(
+            "state" to "finalized",
+            "filePath" to savedFile.absolutePath,
+          ))
+        }
+      }
+      override fun onError(code: Int, message: String?) {
+        mainHandler.post {
+          if (status.connectionPhase == ConnectionPhase.Recording) {
+            updateStatus { it.copy(connectionPhase = ConnectionPhase.Ready) }
+          }
+          sink?.emit("onRecordingStateChanged", mapOf(
+            "state" to "error",
+            "message" to (message ?: errorReasonFromCode(code)),
+          ))
+        }
+      }
+    }
+
+    try {
+      backend.startRecording(outFile, enableAudio, fps, callback)
+    } catch (e: Throwable) {
+      Log.e(TAG, "startRecording failed", e)
+      sink?.emit("onRecordingStateChanged", mapOf(
+        "state" to "error",
+        "message" to "Failed to start recorder: ${e.message ?: e.javaClass.simpleName}",
+      ))
+    }
   }
 
   fun stopRecording() {
-    sink?.emit("onRecordingStateChanged", mapOf("state" to "finalized"))
+    if (!backend.isRecording()) return
+    backend.stopRecording()
+    // onSaved / onError fires asynchronously via the callback and emits the JS event.
+  }
+
+  private fun errorReasonFromCode(code: Int): String = when (code) {
+    VideoCapture.ERROR_ENCODER -> "encoder"
+    VideoCapture.ERROR_MUXER -> "muxer"
+    VideoCapture.ERROR_RECORDING_IN_PROGRESS -> "recording_in_progress"
+    VideoCapture.ERROR_FILE_IO -> "file_io"
+    VideoCapture.ERROR_INVALID_CAMERA -> "invalid_camera"
+    VideoCapture.ERROR_RECORDING_TOO_SHORT -> "recording_too_short"
+    else -> "unknown"
+  }
+
+  private fun pickFps(profile: SelectedProfile): Int {
+    val match = status.deviceOffered.firstOrNull {
+      it.width == profile.width && it.height == profile.height && it.format == profile.format
+    }
+    val raw = match?.maxFps ?: 30
+    return if (raw <= 0) 30 else raw
   }
 
   override fun onUsbAttached(device: UsbDevice, hasPermission: Boolean) {
@@ -136,6 +218,10 @@ class ExternalCameraController private constructor(
   }
 
   override fun onUsbDetached(device: UsbDevice) {
+    if (backend.isRecording()) {
+      Log.w(TAG, "USB detached during active recording — finalizing")
+      backend.stopRecording()
+    }
     sink?.emit("onUsbDetached", mapOf(
       "vendorId" to device.vendorId,
       "productId" to device.productId,

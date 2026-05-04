@@ -54,8 +54,8 @@ class ExternalCameraModule : Module() {
       controller.setExternalModeEnabled(enabled)
     }
 
-    AsyncFunction("startRecording") { outputPath: String, _options: Map<String, Any?> ->
-      controller.startRecording(outputPath)
+    AsyncFunction("startRecording") { outputPath: String, options: Map<String, Any?> ->
+      controller.startRecording(outputPath, options)
     }
 
     AsyncFunction("stopRecording") {
