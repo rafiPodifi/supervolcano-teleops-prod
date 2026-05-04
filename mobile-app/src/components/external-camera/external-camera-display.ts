@@ -2,9 +2,9 @@ import type {
   ExternalCameraConnectionPhase,
   ExternalCameraSessionState,
   ExternalCameraSupportState,
-} from '@/native/external-camera';
+} from "@/native/external-camera";
 
-export type ExternalCameraTestStatus = 'pass' | 'fail' | 'pending';
+export type ExternalCameraTestStatus = "pass" | "fail" | "pending";
 
 type ExternalCameraDisplayStateInput = {
   supportState: ExternalCameraSupportState;
@@ -28,37 +28,64 @@ export type ExternalCameraDisplayState = {
   showPreviewPlaceholder: boolean;
 };
 
+const GENERIC_STATUS_MESSAGES = new Set<string>([
+  "Checking external camera...",
+  "External camera ready.",
+  "External camera preview is live.",
+]);
+
+export function isGenericStatusMessage(
+  message: string | null | undefined,
+): boolean {
+  if (!message) return true;
+  return GENERIC_STATUS_MESSAGES.has(message);
+}
+
+const DEFINITIVE_FAILURE_STATES: ExternalCameraSupportState[] = [
+  "disconnected",
+  "usb_host_unsupported",
+  "camera_permission_required",
+  "usb_permission_required",
+];
+
+export function isDefinitiveFailureState(
+  state: ExternalCameraSupportState,
+): boolean {
+  return DEFINITIVE_FAILURE_STATES.includes(state);
+}
+
 function isDisconnectedState(state: ExternalCameraSupportState): boolean {
   return (
-    state === 'disconnected' ||
-    state === 'usb_attached_not_supported' ||
-    state === 'usb_host_unsupported'
+    state === "disconnected" ||
+    state === "usb_attached_not_supported" ||
+    state === "usb_host_unsupported"
   );
 }
 
 function isPermissionState(state: ExternalCameraSupportState): boolean {
   return (
-    state === 'camera_permission_required' || state === 'usb_permission_required'
+    state === "camera_permission_required" ||
+    state === "usb_permission_required"
   );
 }
 
 function openingLabel(
   phase: ExternalCameraConnectionPhase | null,
-  state: ExternalCameraSupportState
+  state: ExternalCameraSupportState,
 ): string {
-  if (state === 'unknown') {
-    return 'Checking';
+  if (state === "unknown") {
+    return "Checking";
   }
 
   if (
-    phase === 'preview_opening' ||
-    phase === 'awaiting_preview_surface' ||
-    phase === 'uvc_connected'
+    phase === "preview_opening" ||
+    phase === "awaiting_preview_surface" ||
+    phase === "uvc_connected"
   ) {
-    return 'Connecting';
+    return "Connecting";
   }
 
-  return 'Preparing';
+  return "Preparing";
 }
 
 export function getExternalCameraDisplayState({
@@ -74,7 +101,7 @@ export function getExternalCameraDisplayState({
 }: ExternalCameraDisplayStateInput): ExternalCameraDisplayState {
   const hasActivePreview = hasLivePreview || recordingActive;
   const hasStableError =
-    connectionPhase === 'error' || sessionState === 'error';
+    connectionPhase === "error" || sessionState === "error";
   const disconnected = isDisconnectedState(supportState);
   const permissionRequired = isPermissionState(supportState);
   const isOpening =
@@ -88,69 +115,69 @@ export function getExternalCameraDisplayState({
 
   const footerMessage = (() => {
     if (isModeTransitioning) {
-      return 'Switching camera...';
+      return "Switching camera...";
     }
     if (isFinishingRecording) {
-      return 'Finishing external recording and saving it to the upload queue...';
+      return "Finishing external recording and saving it to the upload queue...";
     }
     if (showQueuedConfirmation) {
-      return 'Saved to upload queue.';
+      return "Saved to upload queue.";
     }
     if (recordingActive) {
-      return 'Recording from external camera...';
+      return "Recording from external camera...";
     }
     if (hasLivePreview) {
-      return 'External camera preview is live.';
+      return "External camera preview is live.";
     }
     return statusMessage;
   })();
 
   const connectionLabel = (() => {
     if (isModeTransitioning) {
-      return 'Switching';
+      return "Switching";
     }
     if (isFinishingRecording) {
-      return 'Finishing';
+      return "Finishing";
     }
     if (recordingActive) {
-      return 'Recording';
+      return "Recording";
     }
     if (hasLivePreview) {
-      return 'Connected';
+      return "Connected";
     }
     if (hasStableError) {
-      return 'Unavailable';
+      return "Unavailable";
     }
-    if (supportState === 'camera_permission_required') {
-      return 'App permission needed';
+    if (supportState === "camera_permission_required") {
+      return "App permission needed";
     }
-    if (supportState === 'usb_permission_required') {
-      return 'USB permission needed';
+    if (supportState === "usb_permission_required") {
+      return "USB permission needed";
     }
-    if (supportState === 'usb_attached_not_supported') {
-      return 'Unsupported';
+    if (supportState === "usb_attached_not_supported") {
+      return "Unsupported";
     }
-    if (supportState === 'usb_host_unsupported') {
-      return 'USB host unavailable';
+    if (supportState === "usb_host_unsupported") {
+      return "USB host unavailable";
     }
-    if (supportState === 'disconnected') {
-      return 'Not detected';
+    if (supportState === "disconnected") {
+      return "Not detected";
     }
     if (showQueuedConfirmation && !hasLivePreview) {
-      return 'Queued';
+      return "Queued";
     }
     if (isOpening) {
       return openingLabel(connectionPhase, supportState);
     }
-    return 'Checking';
+    return "Checking";
   })();
 
   const connectionTestStatus: ExternalCameraTestStatus =
     hasActivePreview || showQueuedConfirmation
-      ? 'pass'
+      ? "pass"
       : hasStableError || disconnected
-      ? 'fail'
-      : 'pending';
+        ? "fail"
+        : "pending";
 
   return {
     connectionTestStatus,
@@ -158,7 +185,8 @@ export function getExternalCameraDisplayState({
     connectionHelperText: footerMessage,
     footerMessage,
     showSpinner: isModeTransitioning || isFinishingRecording || isOpening,
-    showRetryAction: hasStableError && !hasActivePreview && !isFinishingRecording,
+    showRetryAction:
+      hasStableError && !hasActivePreview && !isFinishingRecording,
     showPreviewPlaceholder: !hasActivePreview,
   };
 }

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Alert, Linking } from 'react-native';
+import { useCallback, useEffect, useState } from "react";
+import { Alert, Linking } from "react-native";
 import {
   ExternalCamera,
   ExternalCameraConnectionPhase,
@@ -7,14 +7,17 @@ import {
   ExternalCameraStatus,
   ExternalCameraSupportState,
   profileToQuality,
-} from '@/native/external-camera';
+} from "@/native/external-camera";
 
-export type ExternalCameraConnectionStatus = 'unknown' | 'connected' | 'disconnected';
+export type ExternalCameraConnectionStatus =
+  | "unknown"
+  | "connected"
+  | "disconnected";
 
 export type ExternalCameraSimulationControls = {
   currentState: ExternalCameraSupportState | null;
   clear: () => void;
-  setState: (state: Exclude<ExternalCameraSupportState, 'unknown'>) => void;
+  setState: (state: Exclude<ExternalCameraSupportState, "unknown">) => void;
 };
 
 export type ExternalCameraDiagnostics = {
@@ -37,18 +40,19 @@ export type ExternalCameraDiagnostics = {
   ensureExternalCameraSelected: () => Promise<void>;
   waitForSessionState: (
     expectedStates: ExternalCameraSessionState[],
-    timeoutMs?: number
+    timeoutMs?: number,
   ) => Promise<boolean>;
   isConnectionTimedOut: boolean;
   resetConnectionTimeout: () => void;
-  selectedProfile: ExternalCameraStatus['selectedProfile'];
-  negotiatedQuality: 'fhd' | 'hd' | 'sd' | null;
+  selectedProfile: ExternalCameraStatus["selectedProfile"];
+  deviceOffered: NonNullable<ExternalCameraStatus["deviceOffered"]>;
+  negotiatedQuality: "fhd" | "hd" | "sd" | null;
   simulationControls: ExternalCameraSimulationControls | null;
 };
 
 const UNKNOWN_STATUS: ExternalCameraStatus = {
-  state: 'unknown',
-  message: 'Checking external camera...',
+  state: "unknown",
+  message: "Checking external camera...",
   hasUsbHostFeature: true,
   hasCameraPermission: true,
   attachedUsbVideoDeviceCount: 0,
@@ -60,96 +64,97 @@ const UNKNOWN_STATUS: ExternalCameraStatus = {
   sessionState: null,
   previewSurfaceAttached: false,
   connectionPhase: null,
+  deviceOffered: [],
 };
 
 const TEMPORARILY_UNAVAILABLE_STATUS: ExternalCameraStatus = {
   ...UNKNOWN_STATUS,
-  state: 'temporarily_unavailable',
-  message: 'External camera is temporarily unavailable. Reconnect the USB camera and try again.',
+  state: "temporarily_unavailable",
+  message:
+    "External camera is temporarily unavailable. Reconnect the USB camera and try again.",
 };
 
 function hasNativeLivePreview(status: ExternalCameraStatus): boolean {
   return (
-    status.state === 'ready' ||
-    status.sessionState === 'ready' ||
-    status.connectionPhase === 'ready' ||
-    status.connectionPhase === 'recording'
+    status.state === "ready" ||
+    status.sessionState === "ready" ||
+    status.connectionPhase === "ready" ||
+    status.connectionPhase === "recording"
   );
 }
 
 function connectionStatusFromState(
-  state: ExternalCameraSupportState
+  state: ExternalCameraSupportState,
 ): ExternalCameraConnectionStatus {
-  if (state === 'ready') {
-    return 'connected';
+  if (state === "ready") {
+    return "connected";
   }
-  if (state === 'unknown') {
-    return 'unknown';
+  if (state === "unknown") {
+    return "unknown";
   }
-  return 'disconnected';
+  return "disconnected";
 }
 
 function createSimulatedStatus(
-  state: Exclude<ExternalCameraSupportState, 'unknown'>
+  state: Exclude<ExternalCameraSupportState, "unknown">,
 ): ExternalCameraStatus {
   switch (state) {
-    case 'camera_permission_required':
+    case "camera_permission_required":
       return {
         ...UNKNOWN_STATUS,
         state,
-        message: 'Allow camera access to use an external camera.',
+        message: "Allow camera access to use an external camera.",
         hasCameraPermission: false,
       };
-    case 'temporarily_unavailable':
+    case "temporarily_unavailable":
       return {
         ...TEMPORARILY_UNAVAILABLE_STATUS,
       };
-    case 'usb_permission_required':
+    case "usb_permission_required":
       return {
         ...UNKNOWN_STATUS,
         state,
-        message: 'Grant access to the USB camera in the system prompt.',
+        message: "Grant access to the USB camera in the system prompt.",
         attachedUsbVideoDeviceCount: 1,
       };
-    case 'usb_attached_not_supported':
+    case "usb_attached_not_supported":
       return {
         ...UNKNOWN_STATUS,
         state,
-        message:
-          'USB camera detected, but no usable UVC camera is ready yet.',
+        message: "USB camera detected, but no usable UVC camera is ready yet.",
         attachedUsbVideoDeviceCount: 1,
         usbPermissionCount: 1,
       };
-    case 'usb_host_unsupported':
+    case "usb_host_unsupported":
       return {
         ...UNKNOWN_STATUS,
         state,
-        message: 'This device does not support USB host mode.',
+        message: "This device does not support USB host mode.",
         hasUsbHostFeature: false,
       };
-    case 'ready':
+    case "ready":
       return {
         ...UNKNOWN_STATUS,
         state,
-        message: 'External camera ready.',
+        message: "External camera ready.",
         attachedUsbVideoDeviceCount: 1,
         usbPermissionCount: 1,
         externalCameraCount: 0,
         uvcCameraCount: 1,
-        activeCameraId: 'uvc:27',
-        backend: 'uvc',
-        connectionPhase: 'ready',
-        sessionState: 'ready',
+        activeCameraId: "uvc:27",
+        backend: "uvc",
+        connectionPhase: "ready",
+        sessionState: "ready",
         previewSurfaceAttached: true,
       };
-    case 'disconnected':
+    case "disconnected":
     default:
       return {
         ...UNKNOWN_STATUS,
-        state: 'disconnected',
-        message: 'Connect an external USB camera to continue.',
+        state: "disconnected",
+        message: "Connect an external USB camera to continue.",
         connectionPhase: null,
-        sessionState: 'inactive',
+        sessionState: "inactive",
         previewSurfaceAttached: false,
       };
   }
@@ -162,15 +167,17 @@ export function useExternalCameraDiagnostics(): ExternalCameraDiagnostics {
       ? UNKNOWN_STATUS
       : {
           ...UNKNOWN_STATUS,
-          state: 'disconnected',
-          message: 'External cameras are only supported on Android.',
-        }
+          state: "disconnected",
+          message: "External cameras are only supported on Android.",
+        },
   );
-  const [cameraErrorMessage, setCameraErrorMessage] = useState<string | null>(null);
+  const [cameraErrorMessage, setCameraErrorMessage] = useState<string | null>(
+    null,
+  );
   const [isConnectionTimedOut, setIsConnectionTimedOut] = useState(false);
   const [simulatedState, setSimulatedState] = useState<Exclude<
     ExternalCameraSupportState,
-    'unknown'
+    "unknown"
   > | null>(null);
 
   const effectiveStatus = simulatedState
@@ -182,48 +189,65 @@ export function useExternalCameraDiagnostics(): ExternalCameraDiagnostics {
     effectiveStatus.externalCameraCount > 0 ||
     effectiveStatus.uvcCameraCount > 0;
   const connectionStatus = hasDetectedDevice
-    ? 'connected'
+    ? "connected"
     : connectionStatusFromState(effectiveStatus.state);
   const isAvailable = hasDetectedDevice;
   const canSwitchToExternal = isSupported;
   const isReady =
-    effectiveStatus.state === 'ready' &&
-    effectiveStatus.sessionState === 'ready';
+    effectiveStatus.state === "ready" &&
+    effectiveStatus.sessionState === "ready";
   const isSimulated = simulatedState !== null;
   const negotiatedQuality = effectiveStatus.selectedProfile
     ? profileToQuality(effectiveStatus.selectedProfile)
     : null;
+  const deviceOffered = effectiveStatus.deviceOffered ?? [];
+  const negotiationFailed =
+    effectiveStatus.lastFailureReason === "no_supported_profile" &&
+    deviceOffered.length > 0;
+  const negotiationFailureMessage = negotiationFailed
+    ? `Camera reports formats ${[...deviceOffered]
+        .sort((a, b) => b.width * b.height - a.width * a.height)
+        .slice(0, 3)
+        .map((f) => `${f.width}x${f.height} ${f.format}@${f.maxFps}fps`)
+        .join(", ")} — none usable.`
+    : null;
   const statusMessage = hasLivePreview
-    ? 'External camera preview is live.'
-    : cameraErrorMessage ?? effectiveStatus.message;
+    ? "External camera preview is live."
+    : (negotiationFailureMessage ??
+      cameraErrorMessage ??
+      effectiveStatus.message);
 
   const openSettings = useCallback(() => {
     Linking.openSettings();
   }, []);
 
-  const refresh = useCallback(async (): Promise<ExternalCameraStatus | null> => {
-    if (!isSupported) {
-      return null;
-    }
-
-    try {
-      const status = await ExternalCamera.getStatus();
-      setNativeStatus(status);
-      if (hasNativeLivePreview(status) || status.state !== 'temporarily_unavailable') {
-        setCameraErrorMessage(null);
+  const refresh =
+    useCallback(async (): Promise<ExternalCameraStatus | null> => {
+      if (!isSupported) {
+        return null;
       }
-      return simulatedState ? createSimulatedStatus(simulatedState) : status;
-    } catch (error) {
-      console.warn('[ExternalCamera] Failed to refresh status', error);
-      setNativeStatus((previousStatus) => ({
-        ...previousStatus,
-        state: 'temporarily_unavailable',
-        message: TEMPORARILY_UNAVAILABLE_STATUS.message,
-      }));
-      setCameraErrorMessage(TEMPORARILY_UNAVAILABLE_STATUS.message);
-      return null;
-    }
-  }, [isSupported, simulatedState]);
+
+      try {
+        const status = await ExternalCamera.getStatus();
+        setNativeStatus(status);
+        if (
+          hasNativeLivePreview(status) ||
+          status.state !== "temporarily_unavailable"
+        ) {
+          setCameraErrorMessage(null);
+        }
+        return simulatedState ? createSimulatedStatus(simulatedState) : status;
+      } catch (error) {
+        console.warn("[ExternalCamera] Failed to refresh status", error);
+        setNativeStatus((previousStatus) => ({
+          ...previousStatus,
+          state: "temporarily_unavailable",
+          message: TEMPORARILY_UNAVAILABLE_STATUS.message,
+        }));
+        setCameraErrorMessage(TEMPORARILY_UNAVAILABLE_STATUS.message);
+        return null;
+      }
+    }, [isSupported, simulatedState]);
 
   const retryPreview = useCallback(async () => {
     if (!isSupported || simulatedState) {
@@ -240,7 +264,9 @@ export function useExternalCameraDiagnostics(): ExternalCameraDiagnostics {
     }
 
     const cameras = await ExternalCamera.getAvailableCameras();
-    const externalCamera = cameras.find((camera) => camera.facing === 'external');
+    const externalCamera = cameras.find(
+      (camera) => camera.facing === "external",
+    );
     if (externalCamera) {
       await ExternalCamera.setActiveCamera(externalCamera.id);
     }
@@ -253,20 +279,22 @@ export function useExternalCameraDiagnostics(): ExternalCameraDiagnostics {
   const waitForSessionState = useCallback(
     (
       expectedStates: ExternalCameraSessionState[],
-      timeoutMs: number = 1500
+      timeoutMs: number = 1500,
     ): Promise<boolean> => {
       if (simulatedState) {
         return Promise.resolve(
-          expectedStates.includes(createSimulatedStatus(simulatedState).sessionState ?? 'inactive')
+          expectedStates.includes(
+            createSimulatedStatus(simulatedState).sessionState ?? "inactive",
+          ),
         );
       }
 
       if (!isSupported) {
-        return Promise.resolve(expectedStates.includes('inactive'));
+        return Promise.resolve(expectedStates.includes("inactive"));
       }
 
       // Check current state first — may already be satisfied
-      const current = nativeStatus.sessionState ?? 'inactive';
+      const current = nativeStatus.sessionState ?? "inactive";
       if (expectedStates.includes(current)) {
         return Promise.resolve(true);
       }
@@ -279,7 +307,7 @@ export function useExternalCameraDiagnostics(): ExternalCameraDiagnostics {
         }, timeoutMs);
 
         const sub = ExternalCamera.addSessionStateListener((event) => {
-          const state = event.sessionState ?? 'inactive';
+          const state = event.sessionState ?? "inactive";
           if (expectedStates.includes(state)) {
             cleanup();
             setIsConnectionTimedOut(false);
@@ -293,7 +321,7 @@ export function useExternalCameraDiagnostics(): ExternalCameraDiagnostics {
         }
       });
     },
-    [isSupported, simulatedState, nativeStatus]
+    [isSupported, simulatedState, nativeStatus],
   );
 
   useEffect(() => {
@@ -310,25 +338,30 @@ export function useExternalCameraDiagnostics(): ExternalCameraDiagnostics {
     const detachSubscription = ExternalCamera.addUsbDetachListener(() => {
       if (!simulatedState) {
         refresh().catch((error) => {
-          console.warn('[ExternalCamera] Refresh after detach failed', error);
+          console.warn("[ExternalCamera] Refresh after detach failed", error);
         });
       }
     });
 
-    const permissionSubscription = ExternalCamera.addUsbPermissionListener((event) => {
-      if (!event.granted) {
-        Alert.alert(
-          'USB permission denied',
-          'Allow access to the USB camera to use external recording.'
-        );
-      }
+    const permissionSubscription = ExternalCamera.addUsbPermissionListener(
+      (event) => {
+        if (!event.granted) {
+          Alert.alert(
+            "USB permission denied",
+            "Allow access to the USB camera to use external recording.",
+          );
+        }
 
-      if (!simulatedState) {
-        refresh().catch((error) => {
-          console.warn('[ExternalCamera] Refresh after USB permission update failed', error);
-        });
-      }
-    });
+        if (!simulatedState) {
+          refresh().catch((error) => {
+            console.warn(
+              "[ExternalCamera] Refresh after USB permission update failed",
+              error,
+            );
+          });
+        }
+      },
+    );
 
     return () => {
       attachSubscription?.remove();
@@ -344,44 +377,59 @@ export function useExternalCameraDiagnostics(): ExternalCameraDiagnostics {
 
     refresh();
 
-    const subscription = ExternalCamera.addCameraAvailabilityListener((event) => {
-      if (simulatedState) {
-        return;
-      }
+    const subscription = ExternalCamera.addCameraAvailabilityListener(
+      (event) => {
+        if (simulatedState) {
+          return;
+        }
 
-      refresh().catch((error) => {
-        console.warn('[ExternalCamera] Refresh after availability change failed', error);
-      });
-    });
+        refresh().catch((error) => {
+          console.warn(
+            "[ExternalCamera] Refresh after availability change failed",
+            error,
+          );
+        });
+      },
+    );
 
     const statusSubscription = ExternalCamera.addStatusListener((status) => {
       setNativeStatus(status);
-      if (hasNativeLivePreview(status) || status.state !== 'temporarily_unavailable') {
+      if (
+        hasNativeLivePreview(status) ||
+        status.state !== "temporarily_unavailable"
+      ) {
         setCameraErrorMessage(null);
       }
-      if (status.state === 'ready') {
+      if (status.state === "ready") {
         setIsConnectionTimedOut(false);
       }
     });
 
-    const sessionStateSubscription = ExternalCamera.addSessionStateListener((event) => {
-      setNativeStatus((previousStatus) => ({
-        ...previousStatus,
-        sessionState: event.sessionState ?? previousStatus.sessionState ?? null,
-      }));
+    const sessionStateSubscription = ExternalCamera.addSessionStateListener(
+      (event) => {
+        setNativeStatus((previousStatus) => ({
+          ...previousStatus,
+          sessionState:
+            event.sessionState ?? previousStatus.sessionState ?? null,
+        }));
 
-      if (event.sessionState === 'ready') {
-        setCameraErrorMessage(null);
-      }
-    });
+        if (event.sessionState === "ready") {
+          setCameraErrorMessage(null);
+        }
+      },
+    );
 
-    const cameraErrorSubscription = ExternalCamera.addCameraErrorListener((event) => {
-      if (simulatedState) {
-        return;
-      }
+    const cameraErrorSubscription = ExternalCamera.addCameraErrorListener(
+      (event) => {
+        if (simulatedState) {
+          return;
+        }
 
-      setCameraErrorMessage(event.message || TEMPORARILY_UNAVAILABLE_STATUS.message);
-    });
+        setCameraErrorMessage(
+          event.message || TEMPORARILY_UNAVAILABLE_STATUS.message,
+        );
+      },
+    );
 
     return () => {
       subscription?.remove();
@@ -396,7 +444,7 @@ export function useExternalCameraDiagnostics(): ExternalCameraDiagnostics {
       ? {
           currentState: simulatedState,
           clear: () => setSimulatedState(null),
-          setState: (state: Exclude<ExternalCameraSupportState, 'unknown'>) =>
+          setState: (state: Exclude<ExternalCameraSupportState, "unknown">) =>
             setSimulatedState(state),
         }
       : null;
@@ -417,6 +465,7 @@ export function useExternalCameraDiagnostics(): ExternalCameraDiagnostics {
     isSimulated,
     isConnectionTimedOut,
     selectedProfile: effectiveStatus.selectedProfile ?? null,
+    deviceOffered,
     negotiatedQuality,
     openSettings,
     refresh,

@@ -1,0 +1,4 @@
+-keep class com.herohan.uvcapp.** { *; }
+-keep class com.serenegiant.** { *; }
+-dontwarn com.herohan.uvcapp.**
+-dontwarn com.serenegiant.**

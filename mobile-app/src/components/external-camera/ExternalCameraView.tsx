@@ -1,12 +1,12 @@
-import React from 'react';
+import React from "react";
 import {
   NativeSyntheticEvent,
   Platform,
   StyleProp,
   View,
   ViewStyle,
-} from 'react-native';
-import { requireNativeComponent } from 'react-native';
+} from "react-native";
+import { requireNativeViewManager } from "expo-modules-core";
 
 type PreviewReadyChangeEvent = NativeSyntheticEvent<{
   ready: boolean;
@@ -18,8 +18,8 @@ type ExternalCameraViewProps = {
 };
 
 const NativeExternalCameraView =
-  Platform.OS === 'android'
-    ? requireNativeComponent<ExternalCameraViewProps>('ExternalCameraView')
+  Platform.OS === "android"
+    ? requireNativeViewManager<ExternalCameraViewProps>("ExternalCameraModule")
     : null;
 
 export default function ExternalCameraView({

@@ -6,9 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.supervolcano.camera",
@@ -17,10 +15,7 @@
         "NSCameraUsageDescription": "This app needs camera access to record videos at work locations.",
         "NSMicrophoneUsageDescription": "This app needs microphone access to record videos with audio.",
         "NSLocationWhenInUseUsageDescription": "SuperVolcano uses your location to auto-fill your property address",
-        "UIBackgroundModes": [
-          "fetch",
-          "processing"
-        ],
+        "UIBackgroundModes": ["fetch", "processing"],
         "ITSAppUsesNonExemptEncryption": false
       }
     },
@@ -60,7 +55,8 @@
         }
       ],
       "expo-background-fetch",
-      "expo-task-manager"
+      "expo-task-manager",
+      "./modules/external-camera/app.plugin.js"
     ],
     "extra": {
       "eas": {

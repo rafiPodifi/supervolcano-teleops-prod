@@ -22,6 +22,14 @@ android/app/build/
 android/.gradle/
 android/local.properties
 
+# local Expo modules — Android/iOS build caches
+modules/*/android/build/
+modules/*/android/.gradle/
+modules/*/android/.cxx/
+modules/*/android/local.properties
+modules/*/ios/build/
+modules/*/ios/Pods/
+
 # signing
 *.jks
 *.keystore

@@ -1,0 +1,8 @@
+{
+  "name": "external-camera-module",
+  "version": "0.1.0",
+  "description": "Local Expo module providing UVC USB external camera support for Android.",
+  "private": true,
+  "main": "index.ts",
+  "types": "index.ts"
+}
