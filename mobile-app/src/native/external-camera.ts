@@ -36,6 +36,23 @@ export type ExternalCameraSupportState =
   | "usb_host_unsupported"
   | "ready";
 
+export type ExternalCameraFormat =
+  | "mjpeg"
+  | "yuyv"
+  | "h264"
+  | "frame_based"
+  | "mpeg2ts"
+  | "vp8"
+  | "dv"
+  | "unknown";
+
+export const NEGOTIATION_FAILURE_REASONS = new Set<string>([
+  "no_supported_profile",
+  "no_profiles_offered",
+  "all_profiles_failed_to_open",
+  "negotiation_failed_after_retries",
+]);
+
 export type ExternalCameraStatus = {
   state: ExternalCameraSupportState;
   message: string;
@@ -55,21 +72,22 @@ export type ExternalCameraStatus = {
   selectedProfile?: {
     width: number;
     height: number;
-    format: "mjpeg" | "yuyv" | "unknown";
+    format: ExternalCameraFormat;
   } | null;
   attemptedProfiles?: Array<{
     profile: {
       width: number;
       height: number;
-      format: "mjpeg" | "yuyv" | "unknown";
+      format: ExternalCameraFormat;
     };
     result: "success" | "failed";
     failureReason?: string | null;
+    attemptIndex?: number;
   }>;
   deviceOffered?: Array<{
     width: number;
     height: number;
-    format: "mjpeg" | "yuyv" | "unknown";
+    format: ExternalCameraFormat;
     maxFps: number;
     fpsList: number[];
   }>;

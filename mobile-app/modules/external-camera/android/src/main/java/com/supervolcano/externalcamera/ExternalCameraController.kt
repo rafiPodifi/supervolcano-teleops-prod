@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.hardware.usb.UsbDevice
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.Surface
 import androidx.core.content.ContextCompat
 import com.supervolcano.externalcamera.backend.UvcBackend
@@ -157,8 +158,11 @@ class ExternalCameraController private constructor(
     profile: SelectedProfile,
     attempted: List<AttemptedProfile>,
     offered: List<OfferedFormat>,
+    attemptIndex: Int,
   ) {
     val deviceKey = "uvc:${System.currentTimeMillis()}"
+    val mode = if (attemptIndex == 0) "adaptive" else "legacy_fixed"
+    Log.d(TAG, "onBackendConnected ${profile.width}x${profile.height} ${profile.format} attemptIndex=$attemptIndex mode=$mode")
     updateStatus {
       it.copy(
         connectionPhase = if (pendingPreviewSurface != null)
@@ -171,6 +175,7 @@ class ExternalCameraController private constructor(
         deviceOffered = offered,
         deviceKey = deviceKey,
         uvcCameraCount = 1,
+        compatibilityMode = mode,
       )
     }
     previewView?.get()?.applyAspectRatio(profile.width, profile.height)
@@ -181,6 +186,7 @@ class ExternalCameraController private constructor(
     attempted: List<AttemptedProfile>,
     offered: List<OfferedFormat>,
   ) {
+    Log.w(TAG, "onBackendNegotiationFailed reason=$reason attempted=${attempted.size} offered=${offered.size}")
     sink?.emit("onCameraError", mapOf("message" to reason))
     updateStatus {
       it.copy(
@@ -191,6 +197,7 @@ class ExternalCameraController private constructor(
         lastFailureReason = reason,
         attemptedProfiles = attempted,
         deviceOffered = offered,
+        compatibilityMode = null,
       )
     }
     previewView?.get()?.emitPreviewReady(false)
@@ -209,6 +216,7 @@ class ExternalCameraController private constructor(
   }
 
   override fun onBackendError(reason: String) {
+    Log.w(TAG, "onBackendError reason=$reason")
     sink?.emit("onCameraError", mapOf("message" to reason))
     updateStatus {
       it.copy(
@@ -223,6 +231,7 @@ class ExternalCameraController private constructor(
   }
 
   override fun onBackendDetached() {
+    Log.d(TAG, "onBackendDetached")
     updateStatus {
       it.copy(
         supportState = SupportState.Disconnected,
@@ -231,6 +240,7 @@ class ExternalCameraController private constructor(
         sessionState = SessionState.Inactive,
         selectedProfile = null,
         deviceKey = null,
+        compatibilityMode = null,
       )
     }
     previewView?.get()?.emitPreviewReady(false)
@@ -345,6 +355,8 @@ class ExternalCameraController private constructor(
   )
 
   companion object {
+    private const val TAG = "SVExternalCamera"
+
     @Volatile
     private var instance: ExternalCameraController? = null
 
@@ -383,6 +395,7 @@ class ExternalCameraController private constructor(
             ),
             "result" to a.result,
             "failureReason" to a.failureReason,
+            "attemptIndex" to a.attemptIndex,
           )
         },
         "deviceOffered" to s.deviceOffered.map { o ->

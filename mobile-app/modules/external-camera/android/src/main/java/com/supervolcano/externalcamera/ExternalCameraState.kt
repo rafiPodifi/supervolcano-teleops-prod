@@ -44,6 +44,7 @@ data class AttemptedProfile(
   val profile: SelectedProfile,
   val result: String,
   val failureReason: String? = null,
+  val attemptIndex: Int = 0,
 )
 
 data class OfferedFormat(
@@ -108,6 +109,7 @@ data class ExternalCameraStatusSnapshot(
         })
         putString("result", attempt.result)
         putString("failureReason", attempt.failureReason)
+        putInt("attemptIndex", attempt.attemptIndex)
       }
     }
     putParcelableArrayList("attemptedProfiles", ArrayList(attempts))

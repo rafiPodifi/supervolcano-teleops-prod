@@ -6,6 +6,7 @@ import {
   ExternalCameraSessionState,
   ExternalCameraStatus,
   ExternalCameraSupportState,
+  NEGOTIATION_FAILURE_REASONS,
   profileToQuality,
 } from "@/native/external-camera";
 
@@ -201,16 +202,35 @@ export function useExternalCameraDiagnostics(): ExternalCameraDiagnostics {
     ? profileToQuality(effectiveStatus.selectedProfile)
     : null;
   const deviceOffered = effectiveStatus.deviceOffered ?? [];
+  const lastFailureReason = effectiveStatus.lastFailureReason ?? null;
   const negotiationFailed =
-    effectiveStatus.lastFailureReason === "no_supported_profile" &&
-    deviceOffered.length > 0;
-  const negotiationFailureMessage = negotiationFailed
-    ? `Camera reports formats ${[...deviceOffered]
-        .sort((a, b) => b.width * b.height - a.width * a.height)
-        .slice(0, 3)
-        .map((f) => `${f.width}x${f.height} ${f.format}@${f.maxFps}fps`)
-        .join(", ")} — none usable.`
-    : null;
+    lastFailureReason !== null &&
+    NEGOTIATION_FAILURE_REASONS.has(lastFailureReason);
+  const negotiationFailureMessage = (() => {
+    if (!negotiationFailed) return null;
+    const offeredSummary =
+      deviceOffered.length > 0
+        ? [...deviceOffered]
+            .sort((a, b) => b.width * b.height - a.width * a.height)
+            .slice(0, 3)
+            .map((f) => `${f.width}x${f.height} ${f.format}@${f.maxFps}fps`)
+            .join(", ")
+        : null;
+    if (lastFailureReason === "no_profiles_offered") {
+      return "Camera connected but reported no usable profiles. Try unplugging and reconnecting.";
+    }
+    if (
+      lastFailureReason === "all_profiles_failed_to_open" ||
+      lastFailureReason === "negotiation_failed_after_retries"
+    ) {
+      return offeredSummary
+        ? `Camera reports profiles (${offeredSummary}) but none could be opened. Try unplugging and reconnecting.`
+        : "Camera reports profiles but none could be opened. Try unplugging and reconnecting.";
+    }
+    return offeredSummary
+      ? `Camera reports formats ${offeredSummary} — none usable.`
+      : "Camera reports no usable formats.";
+  })();
   const statusMessage = hasLivePreview
     ? "External camera preview is live."
     : (negotiationFailureMessage ??
