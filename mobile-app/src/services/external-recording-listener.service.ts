@@ -7,7 +7,6 @@
  * the native encoder flushes the file).
  */
 
-import * as FileSystem from "expo-file-system/legacy";
 import { ExternalCamera } from "@/native/external-camera";
 import { normalizeLocalFileUri } from "@/utils/local-file-uri";
 import { UploadQueueService } from "./upload-queue.service";
@@ -94,37 +93,6 @@ class ExternalRecordingListenerClass {
         if (event.state === "finalized") {
           const pending = this.pending;
           this.pending = null;
-
-          if (event.filePath) {
-            const normalized = normalizeLocalFileUri(event.filePath);
-            void FileSystem.getInfoAsync(normalized)
-              .then((info) => {
-                const size =
-                  "size" in info && typeof info.size === "number"
-                    ? info.size
-                    : 0;
-                const mtime =
-                  "modificationTime" in info &&
-                  typeof info.modificationTime === "number"
-                    ? info.modificationTime
-                    : null;
-                console.log(
-                  "[ExternalRecordingListener] finalized file stat:",
-                  JSON.stringify({
-                    uri: normalized,
-                    exists: info.exists,
-                    size,
-                    modificationTime: mtime,
-                  }),
-                );
-              })
-              .catch((error) => {
-                console.warn(
-                  "[ExternalRecordingListener] file stat failed:",
-                  error,
-                );
-              });
-          }
 
           this.fireTerminalWaiters(
             event.filePath

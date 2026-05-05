@@ -443,14 +443,6 @@ export default function MemberRecordScreen() {
           recordingMode: "generic",
           startedAt: recordingStartedAtRef.current ?? new Date().toISOString(),
         });
-        console.log(
-          "[MemberRecord] external startRecording:",
-          JSON.stringify({
-            outputPath,
-            enableAudio: recordingConfig.externalCamera.enableAudio,
-            quality: effectiveQuality,
-          }),
-        );
         await ExternalCamera.startRecording(outputPath, {
           enableAudio: recordingConfig.externalCamera.enableAudio,
           quality: effectiveQuality,
@@ -488,14 +480,11 @@ export default function MemberRecordScreen() {
   const stopRecording = async (navigateToComplete: boolean = true) => {
     try {
       if (isExternalModeRef.current) {
-        console.log("[MemberRecord] stopRecording: external mode");
+        // Wait for the encoder's terminal event before tearing down the screen,
+        // otherwise the unmount cleanup closes the UVC camera mid-flush.
         const terminal = ExternalRecordingListener.awaitNextTerminal(5000);
         await ExternalCamera.stopRecording();
-        const outcome = await terminal;
-        console.log(
-          "[MemberRecord] external stopRecording terminal:",
-          JSON.stringify(outcome),
-        );
+        await terminal;
       } else {
         if (!cameraRef.current || !isRecording) return;
         await cameraRef.current.stopRecording();
