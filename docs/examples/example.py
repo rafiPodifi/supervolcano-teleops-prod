@@ -8,7 +8,7 @@ import requests
 import json
 
 API_BASE_URL = "https://supervolcano-teleops.vercel.app/api/robot"
-API_KEY = "9c5eff2e114ebed6a5f93f132cfb9adb7f2dc9c551c9451aa6360237d699284ef"
+API_KEY = "<YOUR_ROBOT_API_KEY>"
 
 headers = {
     "X-Robot-API-Key": API_KEY

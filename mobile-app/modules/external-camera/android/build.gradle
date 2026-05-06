@@ -1,0 +1,24 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.supervolcano.externalcamera'
+version = '0.1.0'
+
+android {
+  namespace 'com.supervolcano.externalcamera'
+
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+    consumerProguardFiles 'consumer-rules.pro'
+  }
+}
+
+dependencies {
+  implementation 'androidx.appcompat:appcompat:1.7.1'
+  implementation 'androidx.core:core-ktx:1.13.1'
+
+  implementation 'com.herohan:UVCAndroid:1.0.11'
+}

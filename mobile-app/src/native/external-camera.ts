@@ -1,24 +1,26 @@
-import { NativeEventEmitter, NativeModules, Platform } from 'react-native';
+import { Platform } from "react-native";
+import { requireOptionalNativeModule } from "expo-modules-core";
+import { normalizeLocalFilePath } from "@/utils/local-file-uri";
 
-export type ExternalCameraFacing = 'front' | 'back' | 'external' | 'unknown';
+export type ExternalCameraFacing = "front" | "back" | "external" | "unknown";
 export type ExternalCameraSessionState =
-  | 'inactive'
-  | 'opening'
-  | 'ready'
-  | 'closing'
-  | 'error';
+  | "inactive"
+  | "opening"
+  | "ready"
+  | "closing"
+  | "error";
 
 export type ExternalCameraConnectionPhase =
-  | 'detected'
-  | 'awaiting_android_permission'
-  | 'android_permission_granted'
-  | 'uvc_connecting'
-  | 'uvc_connected'
-  | 'awaiting_preview_surface'
-  | 'preview_opening'
-  | 'ready'
-  | 'recording'
-  | 'error';
+  | "detected"
+  | "awaiting_android_permission"
+  | "android_permission_granted"
+  | "uvc_connecting"
+  | "uvc_connected"
+  | "awaiting_preview_surface"
+  | "preview_opening"
+  | "ready"
+  | "recording"
+  | "error";
 
 export type ExternalCameraInfo = {
   id: string;
@@ -26,14 +28,31 @@ export type ExternalCameraInfo = {
 };
 
 export type ExternalCameraSupportState =
-  | 'unknown'
-  | 'disconnected'
-  | 'temporarily_unavailable'
-  | 'camera_permission_required'
-  | 'usb_permission_required'
-  | 'usb_attached_not_supported'
-  | 'usb_host_unsupported'
-  | 'ready';
+  | "unknown"
+  | "disconnected"
+  | "temporarily_unavailable"
+  | "camera_permission_required"
+  | "usb_permission_required"
+  | "usb_attached_not_supported"
+  | "usb_host_unsupported"
+  | "ready";
+
+export type ExternalCameraFormat =
+  | "mjpeg"
+  | "yuyv"
+  | "h264"
+  | "frame_based"
+  | "mpeg2ts"
+  | "vp8"
+  | "dv"
+  | "unknown";
+
+export const NEGOTIATION_FAILURE_REASONS = new Set<string>([
+  "no_supported_profile",
+  "no_profiles_offered",
+  "all_profiles_failed_to_open",
+  "negotiation_failed_after_retries",
+]);
 
 export type ExternalCameraStatus = {
   state: ExternalCameraSupportState;
@@ -45,7 +64,7 @@ export type ExternalCameraStatus = {
   externalCameraCount: number;
   uvcCameraCount: number;
   activeCameraId?: string | null;
-  backend?: 'camerax' | 'uvc' | null;
+  backend?: "camerax" | "uvc" | null;
   connectionPhase?: ExternalCameraConnectionPhase | null;
   externalModeEnabled?: boolean;
   sessionState?: ExternalCameraSessionState | null;
@@ -54,23 +73,31 @@ export type ExternalCameraStatus = {
   selectedProfile?: {
     width: number;
     height: number;
-    format: 'mjpeg' | 'yuyv';
+    format: ExternalCameraFormat;
   } | null;
   attemptedProfiles?: Array<{
     profile: {
       width: number;
       height: number;
-      format: 'mjpeg' | 'yuyv';
+      format: ExternalCameraFormat;
     };
-    result: 'success' | 'failed';
+    result: "success" | "failed";
     failureReason?: string | null;
+    attemptIndex?: number;
+  }>;
+  deviceOffered?: Array<{
+    width: number;
+    height: number;
+    format: ExternalCameraFormat;
+    maxFps: number;
+    fpsList: number[];
   }>;
   lastFailureReason?: string | null;
-  compatibilityMode?: 'legacy_fixed' | 'adaptive' | null;
+  compatibilityMode?: "legacy_fixed" | "adaptive" | null;
 };
 
 export type RecordingStateEvent = {
-  state: 'started' | 'finalized' | 'error';
+  state: "started" | "finalized" | "error";
   filePath?: string;
   message?: string;
 };
@@ -104,29 +131,33 @@ export type UsbPermissionEvent = {
 
 type StartRecordingOptions = {
   enableAudio?: boolean;
-  quality?: 'highest' | 'fhd' | 'hd' | 'sd';
+  quality?: "highest" | "fhd" | "hd" | "sd";
 };
 
 // Maps a negotiated profile's resolution back to the closest quality tier.
 // 'highest' is not returned — it is a request label, not a capability label.
-export function profileToQuality(
-  profile: { width: number; height: number }
-): 'fhd' | 'hd' | 'sd' {
-  if (profile.width >= 1920) return 'fhd';
-  if (profile.width >= 1280) return 'hd';
-  return 'sd';
+export function profileToQuality(profile: {
+  width: number;
+  height: number;
+}): "fhd" | "hd" | "sd" {
+  if (profile.width >= 1920) return "fhd";
+  if (profile.width >= 1280) return "hd";
+  return "sd";
 }
 
-const QUALITY_RANK: Record<'highest' | 'fhd' | 'hd' | 'sd', number> = {
-  sd: 0, hd: 1, fhd: 2, highest: 2,
+const QUALITY_RANK: Record<"highest" | "fhd" | "hd" | "sd", number> = {
+  sd: 0,
+  hd: 1,
+  fhd: 2,
+  highest: 2,
 };
 
 // Returns the effective quality to request for recording, capped at what the
 // camera proved it supports during preview negotiation.
 export function capQualityToProfile(
-  requested: 'highest' | 'fhd' | 'hd' | 'sd',
-  negotiated: { width: number; height: number }
-): 'highest' | 'fhd' | 'hd' | 'sd' {
+  requested: "highest" | "fhd" | "hd" | "sd",
+  negotiated: { width: number; height: number },
+): "highest" | "fhd" | "hd" | "sd" {
   const negotiatedQuality = profileToQuality(negotiated);
   if (QUALITY_RANK[requested] <= QUALITY_RANK[negotiatedQuality]) {
     return requested;
@@ -134,13 +165,12 @@ export function capQualityToProfile(
   return negotiatedQuality;
 }
 
-const NativeExternalCameraModule = NativeModules.ExternalCameraModule;
-const eventEmitter = NativeExternalCameraModule
-  ? new NativeEventEmitter(NativeExternalCameraModule)
-  : null;
+const NativeExternalCameraModule = requireOptionalNativeModule<any>(
+  "ExternalCameraModule",
+);
 
 export const ExternalCamera = {
-  isSupported: Platform.OS === 'android' && !!NativeExternalCameraModule,
+  isSupported: Platform.OS === "android" && !!NativeExternalCameraModule,
 
   async getAvailableCameras(): Promise<ExternalCameraInfo[]> {
     if (!NativeExternalCameraModule) {
@@ -152,8 +182,8 @@ export const ExternalCamera = {
   async getStatus(): Promise<ExternalCameraStatus> {
     if (!NativeExternalCameraModule) {
       return {
-        state: 'disconnected',
-        message: 'External cameras are only supported on Android.',
+        state: "disconnected",
+        message: "External cameras are only supported on Android.",
         hasUsbHostFeature: false,
         hasCameraPermission: false,
         attachedUsbVideoDeviceCount: 0,
@@ -169,6 +199,7 @@ export const ExternalCamera = {
         deviceKey: null,
         selectedProfile: null,
         attemptedProfiles: [],
+        deviceOffered: [],
         lastFailureReason: null,
         compatibilityMode: null,
       };
@@ -190,11 +221,17 @@ export const ExternalCamera = {
     await NativeExternalCameraModule.setExternalModeEnabled(enabled);
   },
 
-  async startRecording(outputPath: string, options?: StartRecordingOptions): Promise<void> {
+  async startRecording(
+    outputPath: string,
+    options?: StartRecordingOptions,
+  ): Promise<void> {
     if (!NativeExternalCameraModule) {
       return;
     }
-    await NativeExternalCameraModule.startRecording(outputPath, options ?? {});
+    // Native expects a raw filesystem path (no file:// scheme); MediaMuxer
+    // ENOENTs if it sees the URI form.
+    const nativePath = normalizeLocalFilePath(outputPath);
+    await NativeExternalCameraModule.startRecording(nativePath, options ?? {});
   },
 
   async stopRecording(): Promise<void> {
@@ -212,50 +249,53 @@ export const ExternalCamera = {
   },
 
   addCameraAvailabilityListener(
-    listener: (event: CameraAvailabilityEvent) => void
+    listener: (event: CameraAvailabilityEvent) => void,
   ) {
-    return eventEmitter?.addListener('onCameraAvailabilityChanged', listener);
+    return NativeExternalCameraModule?.addListener(
+      "onCameraAvailabilityChanged",
+      listener,
+    );
   },
 
-  addRecordingStateListener(
-    listener: (event: RecordingStateEvent) => void
-  ) {
-    return eventEmitter?.addListener('onRecordingStateChanged', listener);
+  addRecordingStateListener(listener: (event: RecordingStateEvent) => void) {
+    return NativeExternalCameraModule?.addListener(
+      "onRecordingStateChanged",
+      listener,
+    );
   },
 
-  addCameraErrorListener(
-    listener: (event: CameraErrorEvent) => void
-  ) {
-    return eventEmitter?.addListener('onCameraError', listener);
+  addCameraErrorListener(listener: (event: CameraErrorEvent) => void) {
+    return NativeExternalCameraModule?.addListener("onCameraError", listener);
   },
 
   addSessionStateListener(
-    listener: (event: ExternalCameraSessionEvent) => void
+    listener: (event: ExternalCameraSessionEvent) => void,
   ) {
-    return eventEmitter?.addListener('onExternalCameraSessionStateChanged', listener);
+    return NativeExternalCameraModule?.addListener(
+      "onExternalCameraSessionStateChanged",
+      listener,
+    );
   },
 
-  addUsbAttachListener(
-    listener: (event: UsbCameraEvent) => void
-  ) {
-    return eventEmitter?.addListener('onUsbAttached', listener);
+  addUsbAttachListener(listener: (event: UsbCameraEvent) => void) {
+    return NativeExternalCameraModule?.addListener("onUsbAttached", listener);
   },
 
-  addUsbDetachListener(
-    listener: (event: UsbCameraEvent) => void
-  ) {
-    return eventEmitter?.addListener('onUsbDetached', listener);
+  addUsbDetachListener(listener: (event: UsbCameraEvent) => void) {
+    return NativeExternalCameraModule?.addListener("onUsbDetached", listener);
   },
 
-  addUsbPermissionListener(
-    listener: (event: UsbPermissionEvent) => void
-  ) {
-    return eventEmitter?.addListener('onUsbPermissionResult', listener);
+  addUsbPermissionListener(listener: (event: UsbPermissionEvent) => void) {
+    return NativeExternalCameraModule?.addListener(
+      "onUsbPermissionResult",
+      listener,
+    );
   },
 
-  addStatusListener(
-    listener: (event: ExternalCameraStatus) => void
-  ) {
-    return eventEmitter?.addListener('onExternalCameraStatusChanged', listener);
+  addStatusListener(listener: (event: ExternalCameraStatus) => void) {
+    return NativeExternalCameraModule?.addListener(
+      "onExternalCameraStatusChanged",
+      listener,
+    );
   },
 };

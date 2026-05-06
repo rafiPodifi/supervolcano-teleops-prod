@@ -11,6 +11,8 @@ AGENTS.MD
 .next/
 out/
 dist/
+tsconfig.tsbuildinfo
+*.tsbuildinfo
 email-chain/
 
 bug-reports/
@@ -20,6 +22,7 @@ mobile-app/.idea
 # environment & secrets
 .env*
 *.env
+!.env.example
 # firebase-debug.log
 storage-cors.json
 super-volcano-oem-portal-firebase-adminsdk-fbsvc-9afc946529.json

@@ -12,18 +12,22 @@ The application consists of two main portals:
 ## User Roles
 
 ### Platform Administration
+
 - **admin**: SuperVolcano operational admin, full system access
 - **superadmin**: SuperVolcano engineering/root access, highest privileges
 
 ### B2B: OEM Robotics Testing
+
 - **partner_manager**: OEM company manager, assigns robot tests, manages teleoperators
 - **oem_teleoperator**: OEM worker, operates robots remotely at test locations
 
 ### B2C: Property Management
+
 - **location_owner**: Property owner/manager, assigns cleaning tasks, manages cleaners
 - **location_cleaner**: Cleaning worker, performs cleaning tasks at assigned properties
 
 ### Organization Assignment
+
 - Admins belong to `sv:internal` (SuperVolcano organization)
 - Partner Managers & OEM Teleoperators belong to OEM partner orgs (`oem:company-slug`)
 - Location Owners & Property Cleaners belong to property owner orgs (`owner:owner-slug`)
@@ -43,7 +47,7 @@ SuperVolcano uses a **dual-database architecture**:
 - **Firestore** (Source of Truth): All human-facing endpoints (admin portal, organization portal, mobile apps)
 - **PostgreSQL** (Read-Only Replica): Robot-facing endpoints only (`/api/robot/v1/*`)
 
-**Important:** Admin and organization endpoints should ONLY query Firestore. PostgreSQL is reserved for robot API endpoints. See [ARCHITECTURE.md](./ARCHITECTURE.md) for details.
+**Important:** Admin and organization endpoints should ONLY query Firestore. PostgreSQL is reserved for robot API endpoints. See [docs/architecture/ARCHITECTURE.md](./docs/architecture/ARCHITECTURE.md) for details.
 
 ### Getting Started
 
@@ -53,11 +57,22 @@ SuperVolcano uses a **dual-database architecture**:
    pnpm install
    ```
 
-   > npm and yarn also work if preferred.
+   This also installs Git hooks via Husky. After pulling changes from
+   another contributor, re-run `pnpm install` if hooks fail to fire.
+
+   The repo pins pnpm via the `packageManager` field. Enable Corepack
+   once with `corepack enable` so the pinned version is used
+   automatically.
+
+2. **Configure environment**
+
+   Copy `.env.example` to `.env.local` and fill in real values. The web
+   app validates required env vars at boot — see `src/lib/env.ts`.
 
 ## Environment Variables
 
-Create a `.env.local` file at the project root with the following variables:
+See `.env.example` for the complete list. Required at minimum for local
+dev:
 
 ### Required Variables
 
@@ -182,6 +197,7 @@ See `SECURITY_AUDIT.md` for security checklist and best practices.
 ## Key Features
 
 ### Admin Portal (`/admin`)
+
 - **Organizations**: Create and manage customer organizations with primary managers
 - **Locations**: Create locations, assign to organizations, manage tasks and instructions
 - **Tasks**: Create tasks with detailed instructions (text, images, videos)
@@ -189,6 +205,7 @@ See `SECURITY_AUDIT.md` for security checklist and best practices.
 - **Analytics**: View organization performance metrics
 
 ### Organization Portal (`/org`)
+
 - **Dashboard**: Role-based views (analytics for managers, task-focused for field workers)
 - **Locations**: View assigned locations with tasks and instructions
 - **Task Completion**: Field workers (oem_teleoperator, location_cleaner) can complete tasks with detailed tracking
@@ -197,6 +214,7 @@ See `SECURITY_AUDIT.md` for security checklist and best practices.
 - **Team View**: Managers can view all team members and their stats
 
 ### Task Management
+
 - **Recurring Tasks**: Tasks can be completed multiple times
 - **Completion History**: View all completions for a task with details
 - **Session-Based**: Completions automatically grouped into daily sessions
@@ -208,10 +226,10 @@ See `SECURITY_AUDIT.md` for security checklist and best practices.
 
 ```bash
 # Install dependencies
-npm install
+pnpm install
 
 # Run development server
-npm run dev
+pnpm run dev
 ```
 
 Visit [http://localhost:3000](http://localhost:3000) and sign in on `/login`.
@@ -220,26 +238,26 @@ Visit [http://localhost:3000](http://localhost:3000) and sign in on `/login`.
 
 ```bash
 # Build the application
-npm run build
+pnpm run build
 
 # Start production server
-npm start
+pnpm start
 ```
 
 ### Create Test Users
 
 ```bash
 # Create an organization manager
-npm run create:org-manager <email> <password> [organizationId]
+pnpm run create:org-manager <email> <password> [organizationId]
 
 # Assign manager to existing organization
-npm run assign:manager "<org name>" <email> <password>
+pnpm run assign:manager "<org name>" <email> <password>
 
 # Create a teleoperator
-npm run create:teleoperator <email> <password> <organizationId>
+pnpm run create:teleoperator <email> <password> <organizationId>
 
 # Reset teleoperator password
-npm run reset:password <email>
+pnpm run reset:password <email>
 ```
 
 ## Deployment
@@ -254,6 +272,7 @@ npm run reset:password <email>
 ### Other Platforms
 
 The application can be deployed to any platform that supports Next.js:
+
 - Vercel (recommended)
 - Netlify
 - AWS Amplify
@@ -273,21 +292,25 @@ The application can be deployed to any platform that supports Next.js:
 ### Common Issues
 
 **Build Errors**
-- Check TypeScript errors: `npm run build`
+
+- Check TypeScript errors: `pnpm run build`
 - Verify all imports are correct
 - Ensure environment variables are set
 
 **Authentication Issues**
+
 - Verify Firebase Auth is enabled
 - Check custom claims are set correctly
 - Ensure user has required role
 
 **Permission Denied Errors**
+
 - Verify Firestore rules are deployed
 - Check user's organizationId matches data
 - Review security rules in Firebase Console
 
 **Missing Indexes**
+
 - Follow error message link to create index
 - Or add to `firestore.indexes.json` and deploy
 
@@ -295,7 +318,7 @@ The application can be deployed to any platform that supports Next.js:
 
 1. Create feature branch
 2. Make changes
-3. Run tests: `npm run build`
+3. Run tests: `pnpm run build`
 4. Update documentation
 5. Submit pull request
 

@@ -16,8 +16,11 @@ React Native mobile app (Expo) for recording cleaning task videos with wearable 
 ### 1. Install Dependencies
 
 ```bash
-npm install
+pnpm install
 ```
+
+The repo pins pnpm via the `packageManager` field. Run `corepack enable`
+once so the pinned version is used automatically.
 
 ### 2. Configure Environment Variables
 
@@ -28,6 +31,7 @@ cp .env.local.example .env.local
 ```
 
 Get these values from your web app's `.env.local` file:
+
 - `EXPO_PUBLIC_FIREBASE_API_KEY`
 - `EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN`
 - `EXPO_PUBLIC_FIREBASE_PROJECT_ID`
@@ -39,7 +43,7 @@ Get these values from your web app's `.env.local` file:
 ### 3. Start Development Server
 
 ```bash
-npx expo start
+pnpm exec expo start
 ```
 
 ### 4. Test on Device
@@ -116,16 +120,19 @@ eas submit --platform android
 ## Troubleshooting
 
 ### Camera Permission Denied
+
 - Go to device Settings → Apps → SuperVolcano Camera → Permissions
 - Enable Camera and Microphone
 
 ### Upload Fails
+
 - Check internet connection
 - Verify Firebase Storage rules allow uploads
 - Check `.env.local` has correct Firebase config
 - Videos will remain in queue for retry
 
 ### No Locations/Jobs Showing
+
 - Verify Firebase Firestore has locations and tasks
 - Check `.env.local` has correct Firebase config
 - Ensure web app is synced with Firestore
@@ -139,4 +146,3 @@ eas submit --platform android
 - [ ] Add multiple video recording
 - [ ] Add dark mode
 - [ ] Add biometric lock
-

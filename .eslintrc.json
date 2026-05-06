@@ -1,4 +1,16 @@
 {
   "extends": ["next/core-web-vitals"],
-  "rules": {}
+  "ignorePatterns": [
+    "scripts/archived/**",
+    "src/app/_archived/**",
+    "drizzle/**",
+    ".next/**",
+    "out/**",
+    "dist/**"
+  ],
+  "rules": {
+    "no-console": ["warn", { "allow": ["warn", "error", "info"] }],
+    "prefer-const": "error",
+    "react/no-unescaped-entities": "off"
+  }
 }

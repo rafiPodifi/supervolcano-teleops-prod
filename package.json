@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@9.15.4",
   "scripts": {
     "dev": "next dev",
     "dev:debug": "NEXT_PUBLIC_FIRESTORE_DEBUG=true next dev",
@@ -10,22 +11,33 @@
     "build": "next build",
     "start": "next start",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,md}\"",
-    "migrate:locations": "tsx scripts/migrate-to-locations.ts",
     "set-admin": "tsx scripts/set-admin-role.ts",
     "list-users": "tsx scripts/list-users.ts",
     "deploy-rules": "tsx scripts/deploy-rules.ts",
     "show-rules": "tsx scripts/show-rules.ts",
     "check-locations": "tsx scripts/check-locations.ts",
     "setup:test": "tsx scripts/setup-test-data.ts",
-    "migrate:organizations": "tsx scripts/migrate-to-organizations.ts",
     "create:teleoperator": "tsx scripts/create-test-teleoperator.ts",
     "create:org-manager": "tsx scripts/create-org-manager.ts",
     "assign:manager": "tsx scripts/assign-manager-to-org.ts",
     "reset:password": "tsx scripts/reset-teleoperator-password.ts",
-    "test:firebase": "echo 'Run: curl http://localhost:3000/api/test-firebase && curl http://localhost:3000/api/test-firebase/env'",
-    "db:schema": "tsx scripts/run-schema.ts"
+    "db:schema": "tsx scripts/run-schema.ts",
+    "db:pull": "drizzle-kit pull",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "prettier --write"
+    ],
+    "*.{json,md,css,yml,yaml}": [
+      "prettier --write"
+    ]
   },
   "dependencies": {
+    "@google-cloud/storage": "^7.19.0",
     "@google-cloud/video-intelligence": "^6.2.1",
     "@heroicons/react": "^2.2.0",
     "@neondatabase/serverless": "^1.0.2",
@@ -37,11 +49,11 @@
     "@radix-ui/react-switch": "^1.2.6",
     "@react-google-maps/api": "^2.20.7",
     "@types/archiver": "^7.0.0",
-    "@vercel/postgres": "^0.10.0",
     "archiver": "^7.0.1",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
+    "drizzle-orm": "^0.45.2",
     "firebase": "^11.0.2",
     "firebase-admin": "^11.11.1",
     "framer-motion": "^12.23.24",
@@ -54,10 +66,7 @@
     "react-dom": "^18.3.1",
     "react-hot-toast": "^2.6.0",
     "recharts": "^3.5.1",
-    "request": "^2.88.2",
     "tailwind-merge": "^2.4.0",
-    "use-debounce": "^10.0.6",
-    "uuid": "^13.0.0",
     "zod": "^4.1.12"
   },
   "devDependencies": {
@@ -65,12 +74,13 @@
     "@types/pg": "^8.11.10",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
-    "@types/uuid": "^10.0.0",
     "autoprefixer": "^10.4.20",
     "dotenv": "^17.2.3",
+    "drizzle-kit": "^0.31.10",
     "eslint": "^8.57.0",
     "eslint-config-next": "14.2.11",
-    "firebase-tools": "^14.26.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
     "postcss": "^8.4.47",
     "prettier": "^3.3.3",
     "tailwindcss": "^3.4.13",

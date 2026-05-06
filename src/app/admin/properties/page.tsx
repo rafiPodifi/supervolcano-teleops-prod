@@ -16,8 +16,16 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
-import { createProperty, updateProperty } from "@/lib/repositories/propertiesRepo";
-import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import {
+  createProperty,
+  updateProperty,
+} from "@/lib/repositories/propertiesRepo";
+import {
+  deleteObject,
+  getDownloadURL,
+  ref,
+  uploadBytes,
+} from "firebase/storage";
 import toast from "react-hot-toast";
 import {
   ArrowLeft,
@@ -48,7 +56,14 @@ import {
   SheetTitle,
   SheetFooter,
 } from "@/components/ui/sheet";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { useAuth } from "@/hooks/useAuth";
 import { useCollection } from "@/hooks/useCollection";
 import { useTaskTemplates } from "@/hooks/useTaskTemplates";
@@ -58,7 +73,11 @@ import { firestore, storage } from "@/lib/firebaseClient";
 import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { incrementTemplateAssignment } from "@/lib/templates";
-import type { PropertyMediaItem, PropertyStatus, SVProperty } from "@/lib/types";
+import type {
+  PropertyMediaItem,
+  PropertyStatus,
+  SVProperty,
+} from "@/lib/types";
 
 const DETAIL_TABS = ["summary", "media", "tasks"] as const;
 const FORM_STEPS = ["Basics", "Details", "Media"] as const;
@@ -99,7 +118,9 @@ function buildEmptyForm(defaultPartnerOrg?: string): PropertyFormState {
   };
 }
 
-function mapPropertyMediaForForm(property?: AdminProperty | null): PropertyMediaItem[] {
+function mapPropertyMediaForForm(
+  property?: AdminProperty | null,
+): PropertyMediaItem[] {
   if (!property) return [];
   if (Array.isArray(property.media) && property.media.length) {
     return property.media.map((item) => ({
@@ -118,7 +139,10 @@ function mapPropertyMediaForForm(property?: AdminProperty | null): PropertyMedia
 }
 
 function createMediaId(fallback: string) {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
     return crypto.randomUUID();
   }
   return `${fallback}-${Math.random().toString(36).slice(2, 10)}`;
@@ -128,7 +152,10 @@ function inferMediaType(file: File): PropertyMediaItem["type"] {
   if (file.type.startsWith("video/")) return "video";
   if (file.type.startsWith("image/")) return "image";
   const extension = file.name.split(".").pop()?.toLowerCase();
-  if (extension && ["mp4", "mov", "m4v", "webm", "avi", "mkv"].includes(extension)) {
+  if (
+    extension &&
+    ["mp4", "mov", "m4v", "webm", "avi", "mkv"].includes(extension)
+  ) {
     return "video";
   }
   return "image";
@@ -140,7 +167,9 @@ export default function AdminPropertiesPage() {
 
   const role = (claims?.role as string | undefined) ?? "operator";
   const partnerOrgClaim =
-    typeof claims?.partner_org_id === "string" ? (claims.partner_org_id as string) : undefined;
+    typeof claims?.partner_org_id === "string"
+      ? (claims.partner_org_id as string)
+      : undefined;
   const isAdmin = role === "admin";
 
   const {
@@ -150,14 +179,18 @@ export default function AdminPropertiesPage() {
   } = useProperties({ enabled: isAdmin, includeInactive: true });
 
   const [searchValue, setSearchValue] = useState("");
-  const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
+  const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(
+    null,
+  );
   const [activeTab, setActiveTab] = useState<DetailTab>("summary");
 
   const [propertyDrawerOpen, setPropertyDrawerOpen] = useState(true);
-  const [propertyFormState, setPropertyFormState] = useState<PropertyFormState>(() =>
-    buildEmptyForm(partnerOrgClaim),
+  const [propertyFormState, setPropertyFormState] = useState<PropertyFormState>(
+    () => buildEmptyForm(partnerOrgClaim),
   );
-  const [editingPropertyId, setEditingPropertyId] = useState<string | null>(null);
+  const [editingPropertyId, setEditingPropertyId] = useState<string | null>(
+    null,
+  );
   const [propertyFormStepIndex, setPropertyFormStepIndex] = useState(0);
   const [propertySaving, setPropertySaving] = useState(false);
   const [propertyError, setPropertyError] = useState<string | null>(null);
@@ -176,10 +209,11 @@ export default function AdminPropertiesPage() {
   // Use a ref to store previous properties array to prevent unnecessary recalculations
   const propertiesRef = useRef(properties);
   const selectedPropertyIdRef = useRef(selectedPropertyId);
-  
+
   // Only update refs when actual values change (not just reference)
   useEffect(() => {
-    const propsChanged = properties.length !== propertiesRef.current.length || 
+    const propsChanged =
+      properties.length !== propertiesRef.current.length ||
       properties.some((p, i) => p.id !== propertiesRef.current[i]?.id);
     if (propsChanged) {
       propertiesRef.current = properties;
@@ -188,11 +222,14 @@ export default function AdminPropertiesPage() {
       selectedPropertyIdRef.current = selectedPropertyId;
     }
   }, [properties, selectedPropertyId]);
-  
+
   const selectedProperty = useMemo(() => {
     if (!selectedPropertyId) return null;
     // Use stable reference to properties array
-    return propertiesRef.current.find((item) => item.id === selectedPropertyId) ?? null;
+    return (
+      propertiesRef.current.find((item) => item.id === selectedPropertyId) ??
+      null
+    );
   }, [selectedPropertyId]); // Only depend on selectedPropertyId, not properties array
 
   const editingProperty = useMemo(() => {
@@ -209,7 +246,9 @@ export default function AdminPropertiesPage() {
   } = useCollection<PortalTask>({
     path: "tasks",
     enabled: Boolean(selectedPropertyId),
-    whereEqual: selectedPropertyId ? [{ field: "locationId", value: selectedPropertyId }] : undefined,
+    whereEqual: selectedPropertyId
+      ? [{ field: "locationId", value: selectedPropertyId }]
+      : undefined,
     parse: (doc) =>
       ({
         id: doc.id,
@@ -239,7 +278,7 @@ export default function AdminPropertiesPage() {
   const hasSetInitialProperty = useRef(false);
   const lastPropertyIdsString = useRef<string>("");
   const isSettingProperty = useRef(false);
-  
+
   // Only update selectedPropertyId when property IDs actually change (not on every render)
   // DISABLED: This was causing infinite loops. Manual selection only now.
   // useEffect(() => {
@@ -249,19 +288,19 @@ export default function AdminPropertiesPage() {
   //     lastPropertyIdsString.current = "";
   //     return;
   //   }
-  //   
+  //
   //   // Create stable ID string to compare (only IDs, not full objects)
   //   const currentPropertyIds = filteredProperties.map(p => p.id).sort().join(",");
   //   const idsChanged = currentPropertyIds !== lastPropertyIdsString.current;
-  //   
+  //
   //   // Only proceed if IDs actually changed (not just array reference)
   //   if (!idsChanged && hasSetInitialProperty.current) {
   //     return;
   //   }
-  //   
+  //
   //   // Update the ref
   //   lastPropertyIdsString.current = currentPropertyIds;
-  //   
+  //
   //   // Only set initial property once when properties first load AND no property is selected
   //   if (!hasSetInitialProperty.current && !selectedPropertyId && filteredProperties.length > 0) {
   //     isSettingProperty.current = true;
@@ -274,7 +313,7 @@ export default function AdminPropertiesPage() {
   //     setTimeout(() => { isSettingProperty.current = false; }, 100);
   //     return;
   //   }
-  //   
+  //
   //   // Only update if selected property doesn't exist in current list (and we've already set initial)
   //   if (hasSetInitialProperty.current && selectedPropertyId) {
   //     const currentSelectedExists = filteredProperties.some((property) => property.id === selectedPropertyId);
@@ -292,7 +331,8 @@ export default function AdminPropertiesPage() {
   // }, [filteredProperties.length]); // Only depend on length - removed selectedPropertyId to prevent loops
 
   const operatorTaskCount = useMemo(() => {
-    return tasks.filter((task) => task.assignment === "oem_teleoperator").length;
+    return tasks.filter((task) => task.assignment === "oem_teleoperator")
+      .length;
   }, [tasks]);
 
   const resetPropertyForm = useCallback(() => {
@@ -307,26 +347,23 @@ export default function AdminPropertiesPage() {
     setPropertyDrawerOpen(true);
   }, [resetPropertyForm]);
 
-  const openEditPropertyDrawer = useCallback(
-    (property: AdminProperty) => {
-      setPropertyFormState({
-        name: property.name,
-        address: property.address ?? "",
-        partnerOrgId: property.partnerOrgId,
-        status: property.status,
-        description: property.description ?? "",
-        existingMedia: mapPropertyMediaForForm(property),
-        removedMediaIds: [],
-        uploadFiles: [],
-        isActive: property.isActive !== false,
-      });
-      setPropertyFormStepIndex(0);
-      setPropertyError(null);
-      setEditingPropertyId(property.id);
-      setPropertyDrawerOpen(true);
-    },
-    [],
-  );
+  const openEditPropertyDrawer = useCallback((property: AdminProperty) => {
+    setPropertyFormState({
+      name: property.name,
+      address: property.address ?? "",
+      partnerOrgId: property.partnerOrgId,
+      status: property.status,
+      description: property.description ?? "",
+      existingMedia: mapPropertyMediaForForm(property),
+      removedMediaIds: [],
+      uploadFiles: [],
+      isActive: property.isActive !== false,
+    });
+    setPropertyFormStepIndex(0);
+    setPropertyError(null);
+    setEditingPropertyId(property.id);
+    setPropertyDrawerOpen(true);
+  }, []);
 
   const closePropertyDrawer = useCallback(() => {
     setPropertyDrawerOpen(false);
@@ -336,7 +373,9 @@ export default function AdminPropertiesPage() {
   }, [resetPropertyForm]);
 
   const nextFormStep = useCallback(() => {
-    setPropertyFormStepIndex((index) => Math.min(index + 1, FORM_STEPS.length - 1));
+    setPropertyFormStepIndex((index) =>
+      Math.min(index + 1, FORM_STEPS.length - 1),
+    );
   }, []);
 
   const previousFormStep = useCallback(() => {
@@ -360,36 +399,40 @@ export default function AdminPropertiesPage() {
       timestamp: new Date().toISOString(),
     });
     console.log("=".repeat(80));
-    
+
     if (!user) {
       console.error("[admin] ❌ persistProperty: no user");
       toast.error("You must be logged in to save properties");
       return;
     }
 
-        // Validate required fields
-        const trimmedName = propertyFormState.name?.trim() || "";
-        if (!trimmedName) {
-          console.error("[admin] ❌ persistProperty: name is required", {
-            name: propertyFormState.name,
-            nameType: typeof propertyFormState.name,
-            nameLength: propertyFormState.name?.length,
-          });
-          toast.error("Property name is required");
-          setPropertyError("Property name is required");
-          return;
-        }
-        console.log("[admin] ✅ persistProperty: name validated", { trimmedName, length: trimmedName.length });
+    // Validate required fields
+    const trimmedName = propertyFormState.name?.trim() || "";
+    if (!trimmedName) {
+      console.error("[admin] ❌ persistProperty: name is required", {
+        name: propertyFormState.name,
+        nameType: typeof propertyFormState.name,
+        nameLength: propertyFormState.name?.length,
+      });
+      toast.error("Property name is required");
+      setPropertyError("Property name is required");
+      return;
+    }
+    console.log("[admin] ✅ persistProperty: name validated", {
+      trimmedName,
+      length: trimmedName.length,
+    });
 
-    const trimmedPartnerOrg = propertyFormState.partnerOrgId.trim() || partnerOrgClaim || "demo-org";
+    const trimmedPartnerOrg =
+      propertyFormState.partnerOrgId.trim() || partnerOrgClaim || "demo-org";
 
     setPropertySaving(true);
     setPropertyError(null);
 
     try {
       console.time("persistProperty");
-      console.log("[admin] persistProperty:start", { 
-        editingPropertyId, 
+      console.log("[admin] persistProperty:start", {
+        editingPropertyId,
         trimmedPartnerOrg,
         userId: user.uid,
         userEmail: user.email,
@@ -404,7 +447,7 @@ export default function AdminPropertiesPage() {
         if (token) {
           // Decode token to check claims (just for debugging - don't use in production)
           try {
-            const payload = JSON.parse(atob(token.split('.')[1]));
+            const payload = JSON.parse(atob(token.split(".")[1]));
             const tokenRole = payload.role;
             console.log("[admin] persistProperty:token claims", {
               role: tokenRole,
@@ -412,31 +455,40 @@ export default function AdminPropertiesPage() {
               email: payload.email,
               uid: payload.user_id || payload.sub,
             });
-            
+
             if (tokenRole !== "admin") {
-              console.error("[admin] ❌ CRITICAL: Token does not have admin role!", {
-                tokenRole: tokenRole,
-                expectedRole: "admin",
-                hasRole: !!tokenRole,
-                roleType: typeof tokenRole,
-              });
-              const errorMsg = `Permission denied: Your account role is "${tokenRole || 'undefined'}" but "admin" is required. Please sign out and sign back in to refresh your token, or contact an administrator.`;
+              console.error(
+                "[admin] ❌ CRITICAL: Token does not have admin role!",
+                {
+                  tokenRole: tokenRole,
+                  expectedRole: "admin",
+                  hasRole: !!tokenRole,
+                  roleType: typeof tokenRole,
+                },
+              );
+              const errorMsg = `Permission denied: Your account role is "${tokenRole || "undefined"}" but "admin" is required. Please sign out and sign back in to refresh your token, or contact an administrator.`;
               toast.error(errorMsg);
               setPropertySaving(false);
               setPropertyError(errorMsg);
               return;
             } else {
-              console.log("[admin] ✅ Token has admin role - proceeding with save");
+              console.log(
+                "[admin] ✅ Token has admin role - proceeding with save",
+              );
             }
           } catch (decodeError) {
             // Token decode failed - log but continue (Firestore will validate)
-            console.warn("[admin] Could not decode token claims (continuing anyway)", decodeError);
+            console.warn(
+              "[admin] Could not decode token claims (continuing anyway)",
+              decodeError,
+            );
           }
         }
         console.log("[admin] persistProperty:token refreshed and validated");
       } catch (tokenError) {
         console.error("[admin] token refresh failed", tokenError);
-        const errorMsg = "Failed to refresh authentication token. Please try again.";
+        const errorMsg =
+          "Failed to refresh authentication token. Please try again.";
         toast.error(errorMsg);
         setPropertySaving(false);
         setPropertyError(errorMsg);
@@ -447,7 +499,10 @@ export default function AdminPropertiesPage() {
         propertyFormState.removedMediaIds.includes(item.id),
       );
       if (removedMediaItems.length) {
-        console.log("[admin] persistProperty:removing media", removedMediaItems.map((item) => item.id));
+        console.log(
+          "[admin] persistProperty:removing media",
+          removedMediaItems.map((item) => item.id),
+        );
         await Promise.all(
           removedMediaItems.map(async (item) => {
             try {
@@ -456,7 +511,10 @@ export default function AdminPropertiesPage() {
                 return;
               }
               const parsed = new URL(item.url);
-              const objectRef = ref(storage, decodeURIComponent(parsed.pathname.replace(/^\//, "")));
+              const objectRef = ref(
+                storage,
+                decodeURIComponent(parsed.pathname.replace(/^\//, "")),
+              );
               await deleteObject(objectRef);
             } catch (error) {
               console.warn("[admin] failed to remove media", item.url, error);
@@ -470,7 +528,7 @@ export default function AdminPropertiesPage() {
       );
 
       let propertyId: string;
-      let uploadedMediaItems: PropertyMediaItem[] = [];
+      const uploadedMediaItems: PropertyMediaItem[] = [];
 
       if (editingProperty && editingPropertyId) {
         // Update existing document
@@ -483,7 +541,9 @@ export default function AdminPropertiesPage() {
           const mediaId = createMediaId(file.name);
           const path = `locations/${propertyId}/media/${mediaId}-${file.name}`;
           const storageRef = ref(storage, path);
-          const snapshot = await uploadBytes(storageRef, file, { contentType: file.type });
+          const snapshot = await uploadBytes(storageRef, file, {
+            contentType: file.type,
+          });
           const url = await getDownloadURL(snapshot.ref);
           uploadedMediaItems.push({
             id: mediaId,
@@ -496,7 +556,9 @@ export default function AdminPropertiesPage() {
         }
 
         const media = [...retainedMedia, ...uploadedMediaItems];
-        const images = media.filter((item) => item.type === "image").map((item) => item.url);
+        const images = media
+          .filter((item) => item.type === "image")
+          .map((item) => item.url);
         const videoCount = media.filter((item) => item.type === "video").length;
 
         // Update using repository function
@@ -522,7 +584,7 @@ export default function AdminPropertiesPage() {
         // Create new document FIRST to get proper Firestore UUID
         const nameToSave = trimmedName; // Use validated trimmed name
         const addressToSave = propertyFormState.address.trim();
-        
+
         console.log("[admin] Creating new location...", {
           name: nameToSave,
           nameLength: nameToSave.length,
@@ -531,7 +593,7 @@ export default function AdminPropertiesPage() {
           createdBy: user.uid,
           fullFormState: propertyFormState,
         });
-        
+
         try {
           propertyId = await createProperty({
             name: nameToSave,
@@ -543,10 +605,15 @@ export default function AdminPropertiesPage() {
             media: [],
             createdBy: user.uid,
           });
-          console.log("[admin] Location created with Firestore UUID:", propertyId);
+          console.log(
+            "[admin] Location created with Firestore UUID:",
+            propertyId,
+          );
         } catch (createError) {
           console.error("[admin] Failed to create location:", createError);
-          throw new Error(`Failed to create location: ${createError instanceof Error ? createError.message : String(createError)}`);
+          throw new Error(
+            `Failed to create location: ${createError instanceof Error ? createError.message : String(createError)}`,
+          );
         }
 
         // Now upload media files using the proper UUID
@@ -556,7 +623,9 @@ export default function AdminPropertiesPage() {
           const mediaId = createMediaId(file.name);
           const path = `locations/${propertyId}/media/${mediaId}-${file.name}`;
           const storageRef = ref(storage, path);
-          const snapshot = await uploadBytes(storageRef, file, { contentType: file.type });
+          const snapshot = await uploadBytes(storageRef, file, {
+            contentType: file.type,
+          });
           const url = await getDownloadURL(snapshot.ref);
           uploadedMediaItems.push({
             id: mediaId,
@@ -570,7 +639,9 @@ export default function AdminPropertiesPage() {
 
         // Update document with media URLs
         const media = [...retainedMedia, ...uploadedMediaItems];
-        const images = media.filter((item) => item.type === "image").map((item) => item.url);
+        const images = media
+          .filter((item) => item.type === "image")
+          .map((item) => item.url);
         const videoCount = media.filter((item) => item.type === "video").length;
 
         if (uploadedMediaItems.length > 0 || retainedMedia.length > 0) {
@@ -593,9 +664,15 @@ export default function AdminPropertiesPage() {
             );
             console.log("[admin] Location media updated:", propertyId);
           } catch (updateError) {
-            console.error("[admin] Failed to update location media:", updateError);
+            console.error(
+              "[admin] Failed to update location media:",
+              updateError,
+            );
             // Don't throw - the location was created successfully, media update can fail
-            toast("Location created but media upload failed. You can add media later.", { icon: "⚠️" });
+            toast(
+              "Location created but media upload failed. You can add media later.",
+              { icon: "⚠️" },
+            );
           }
         }
       }
@@ -617,20 +694,26 @@ export default function AdminPropertiesPage() {
         errorName: (error as any)?.name,
       });
       console.error("=".repeat(80));
-      
+
       const message =
-        error instanceof Error ? error.message : "Unable to save property. Verify your admin access.";
+        error instanceof Error
+          ? error.message
+          : "Unable to save property. Verify your admin access.";
       setPropertyError(message);
-      
+
       // Show a more visible error
       toast.error(`Failed to save: ${message}`, {
         duration: 10000, // Show for 10 seconds
       });
-      
+
       // Also log to console with instructions
       console.error("\n🔍 TROUBLESHOOTING:");
-      console.error("1. Check Network tab for requests to firestore.googleapis.com");
-      console.error("2. Check if request was sent (status: pending/200/403/401)");
+      console.error(
+        "1. Check Network tab for requests to firestore.googleapis.com",
+      );
+      console.error(
+        "2. Check if request was sent (status: pending/200/403/401)",
+      );
       console.error("3. If no request appears, the SDK isn't sending it");
       console.error("4. If 403, check Firestore rules and admin role");
       console.error("5. If 401, sign out and sign back in");
@@ -644,10 +727,17 @@ export default function AdminPropertiesPage() {
   async function handleDeleteProperty(property: AdminProperty) {
     try {
       const propertyRef = doc(firestore, "locations", property.id);
-      const tasksQuery = query(collection(firestore, "tasks"), where("locationId", "==", property.id));
+      const tasksQuery = query(
+        collection(firestore, "tasks"),
+        where("locationId", "==", property.id),
+      );
       const snapshot = await getDocs(tasksQuery);
 
-      await Promise.all(snapshot.docs.map((taskDoc) => deleteDoc(doc(firestore, "tasks", taskDoc.id))));
+      await Promise.all(
+        snapshot.docs.map((taskDoc) =>
+          deleteDoc(doc(firestore, "tasks", taskDoc.id)),
+        ),
+      );
       await deleteDoc(propertyRef);
 
       if (selectedPropertyId === property.id) {
@@ -656,21 +746,29 @@ export default function AdminPropertiesPage() {
       toast.success("Property deleted");
     } catch (error) {
       console.error("[admin] failed to delete property", error);
-      const message = error instanceof Error ? error.message : "Unable to delete property.";
+      const message =
+        error instanceof Error ? error.message : "Unable to delete property.";
       toast.error(message);
     }
   }
 
-  async function handleTogglePropertyStatus(property: AdminProperty, checked: boolean) {
+  async function handleTogglePropertyStatus(
+    property: AdminProperty,
+    checked: boolean,
+  ) {
     const nextStatus: PropertyStatus = checked ? "scheduled" : "unassigned";
-      await updateDoc(doc(firestore, "locations", property.id), {
+    await updateDoc(doc(firestore, "locations", property.id), {
       status: nextStatus,
       updatedAt: serverTimestamp(),
     });
-    toast.success(`Property "${property.name}" marked ${nextStatus === "scheduled" ? "scheduled" : "unassigned"}.`);
+    toast.success(
+      `Property "${property.name}" marked ${nextStatus === "scheduled" ? "scheduled" : "unassigned"}.`,
+    );
   }
 
-  const taskFormInitialValues = useMemo<Partial<TaskFormData> | undefined>(() => {
+  const taskFormInitialValues = useMemo<
+    Partial<TaskFormData> | undefined
+  >(() => {
     if (!editingTask) return undefined;
     return {
       name: editingTask.name,
@@ -731,7 +829,9 @@ export default function AdminPropertiesPage() {
     } catch (error) {
       console.error("[admin] failed to save task", error);
       const message =
-        error instanceof Error ? error.message : "Failed to save task. Check your admin access.";
+        error instanceof Error
+          ? error.message
+          : "Failed to save task. Check your admin access.";
       toast.error(message);
       return;
     } finally {
@@ -752,7 +852,8 @@ export default function AdminPropertiesPage() {
       toast.success("Task deleted");
     } catch (error) {
       console.error("[admin] failed to delete task", error);
-      const message = error instanceof Error ? error.message : "Unable to delete task.";
+      const message =
+        error instanceof Error ? error.message : "Unable to delete task.";
       toast.error(message);
     } finally {
       setDeletingTaskId(null);
@@ -772,12 +873,16 @@ export default function AdminPropertiesPage() {
       <main className="flex min-h-screen flex-col items-center justify-center gap-4">
         <Card className="w-full max-w-md border-neutral-200">
           <CardHeader>
-            <CardTitle className="text-xl font-semibold">Admin access required</CardTitle>
+            <CardTitle className="text-xl font-semibold">
+              Admin access required
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm text-neutral-500">
             <p>This area is reserved for administrators.</p>
             <Button asChild variant="outline" className="w-full">
-              <Link href="/properties" prefetch={false}>Go back to operator portal</Link>
+              <Link href="/properties" prefetch={false}>
+                Go back to operator portal
+              </Link>
             </Button>
           </CardContent>
         </Card>
@@ -788,18 +893,31 @@ export default function AdminPropertiesPage() {
   return (
     <div className="space-y-8">
       <header className="flex flex-col gap-2">
-        <p className="text-xs uppercase tracking-widest text-neutral-400">Admin / Properties</p>
+        <p className="text-xs uppercase tracking-widest text-neutral-400">
+          Admin / Properties
+        </p>
         <h1 className="text-3xl font-semibold text-neutral-900">Properties</h1>
-        <p className="text-sm text-neutral-500">Manage property details, media, and template-driven tasks.</p>
+        <p className="text-sm text-neutral-500">
+          Manage property details, media, and template-driven tasks.
+        </p>
       </header>
       <section className="flex flex-col gap-6 lg:flex-row">
         <aside className="w-full max-w-sm rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm lg:sticky lg:top-10 lg:h-[75vh] lg:flex-shrink-0 lg:overflow-hidden">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold text-neutral-900">Properties</h2>
-              <p className="text-xs text-neutral-500">Select a property to manage details</p>
+              <h2 className="text-lg font-semibold text-neutral-900">
+                Properties
+              </h2>
+              <p className="text-xs text-neutral-500">
+                Select a property to manage details
+              </p>
             </div>
-            <Button size="icon" variant="outline" onClick={openCreatePropertyDrawer} aria-label="Create property">
+            <Button
+              size="icon"
+              variant="outline"
+              onClick={openCreatePropertyDrawer}
+              aria-label="Create property"
+            >
               <Plus className="h-4 w-4" />
             </Button>
           </div>
@@ -818,7 +936,10 @@ export default function AdminPropertiesPage() {
             {propertiesLoading ? (
               <div className="space-y-3">
                 {Array.from({ length: 4 }).map((_, index) => (
-                  <div key={index} className="h-24 animate-pulse rounded-xl bg-neutral-100" />
+                  <div
+                    key={index}
+                    className="h-24 animate-pulse rounded-xl bg-neutral-100"
+                  />
                 ))}
               </div>
             ) : filteredProperties.length ? (
@@ -835,21 +956,42 @@ export default function AdminPropertiesPage() {
                         }}
                         className={cn(
                           "w-full rounded-xl border border-neutral-200 px-4 py-3 text-left transition hover:border-neutral-300 hover:bg-neutral-50",
-                          isActive && "border-neutral-900 bg-neutral-900 text-white hover:bg-neutral-900",
+                          isActive &&
+                            "border-neutral-900 bg-neutral-900 text-white hover:bg-neutral-900",
                         )}
                       >
                         <div className="flex items-center justify-between">
-                          <span className="text-sm font-semibold">{property.name}</span>
-                          <Badge variant={property.status === "scheduled" ? "default" : "secondary"}>
-                            {property.status === "scheduled" ? "Scheduled" : "Unassigned"}
+                          <span className="text-sm font-semibold">
+                            {property.name}
+                          </span>
+                          <Badge
+                            variant={
+                              property.status === "scheduled"
+                                ? "default"
+                                : "secondary"
+                            }
+                          >
+                            {property.status === "scheduled"
+                              ? "Scheduled"
+                              : "Unassigned"}
                           </Badge>
                         </div>
-                        <p className={cn("mt-1 text-xs", isActive ? "text-neutral-200" : "text-neutral-500")}
+                        <p
+                          className={cn(
+                            "mt-1 text-xs",
+                            isActive ? "text-neutral-200" : "text-neutral-500",
+                          )}
                         >
                           {property.partnerOrgId}
                         </p>
                         {property.address ? (
-                          <p className={cn("mt-1 line-clamp-1 text-xs", isActive ? "text-neutral-200" : "text-neutral-400")}
+                          <p
+                            className={cn(
+                              "mt-1 line-clamp-1 text-xs",
+                              isActive
+                                ? "text-neutral-200"
+                                : "text-neutral-400",
+                            )}
                           >
                             {property.address}
                           </p>
@@ -861,8 +1003,16 @@ export default function AdminPropertiesPage() {
               </ul>
             ) : (
               <div className="mt-6 space-y-3 text-sm text-neutral-500">
-                {propertiesError ? <p>{propertiesError}</p> : <p>No properties found.</p>}
-                <Button variant="outline" onClick={openCreatePropertyDrawer} className="w-full">
+                {propertiesError ? (
+                  <p>{propertiesError}</p>
+                ) : (
+                  <p>No properties found.</p>
+                )}
+                <Button
+                  variant="outline"
+                  onClick={openCreatePropertyDrawer}
+                  className="w-full"
+                >
                   <Plus className="mr-2 h-4 w-4" /> Create property
                 </Button>
               </div>
@@ -876,19 +1026,31 @@ export default function AdminPropertiesPage() {
               <header className="flex flex-col gap-4 rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <div>
-                    <h1 className="text-2xl font-semibold text-neutral-900">{selectedProperty.name}</h1>
+                    <h1 className="text-2xl font-semibold text-neutral-900">
+                      {selectedProperty.name}
+                    </h1>
                     <p className="flex items-center gap-2 text-sm text-neutral-500">
-                      <Layers className="h-4 w-4" /> {selectedProperty.partnerOrgId}
+                      <Layers className="h-4 w-4" />{" "}
+                      {selectedProperty.partnerOrgId}
                     </p>
                     {selectedProperty.address && (
                       <p className="mt-1 flex items-center gap-2 text-sm text-neutral-500">
-                        <MapPin className="h-4 w-4" /> {selectedProperty.address}
+                        <MapPin className="h-4 w-4" />{" "}
+                        {selectedProperty.address}
                       </p>
                     )}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant={selectedProperty.status === "scheduled" ? "default" : "secondary"}>
-                      {selectedProperty.status === "scheduled" ? "Scheduled" : "Unassigned"}
+                    <Badge
+                      variant={
+                        selectedProperty.status === "scheduled"
+                          ? "default"
+                          : "secondary"
+                      }
+                    >
+                      {selectedProperty.status === "scheduled"
+                        ? "Scheduled"
+                        : "Unassigned"}
                     </Badge>
                     <Button
                       variant="outline"
@@ -900,18 +1062,32 @@ export default function AdminPropertiesPage() {
                         )
                       }
                     >
-                      {selectedProperty.status === "scheduled" ? "Mark unassigned" : "Mark scheduled"}
+                      {selectedProperty.status === "scheduled"
+                        ? "Mark unassigned"
+                        : "Mark scheduled"}
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => openEditPropertyDrawer(selectedProperty)}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => openEditPropertyDrawer(selectedProperty)}
+                    >
                       <Edit3 className="mr-2 h-4 w-4" /> Edit
                     </Button>
-                    <Button variant="default" size="sm" onClick={() => openTaskDrawer()}>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={() => openTaskDrawer()}
+                    >
                       <FilePlus2 className="mr-2 h-4 w-4" /> Add task
                     </Button>
                     {selectedPropertyId && (
                       <Button variant="ghost" size="sm" asChild>
-                        <Link href={`/property/${selectedPropertyId}`} prefetch={false}>
-                          <ExternalLink className="mr-2 h-4 w-4" /> Open property page
+                        <Link
+                          href={`/property/${selectedPropertyId}`}
+                          prefetch={false}
+                        >
+                          <ExternalLink className="mr-2 h-4 w-4" /> Open
+                          property page
                         </Link>
                       </Button>
                     )}
@@ -919,15 +1095,25 @@ export default function AdminPropertiesPage() {
                 </div>
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
-                    <p className="text-xs uppercase text-neutral-500">Teleoperator tasks</p>
-                    <p className="mt-1 text-2xl font-semibold text-neutral-900">{operatorTaskCount}</p>
+                    <p className="text-xs uppercase text-neutral-500">
+                      Teleoperator tasks
+                    </p>
+                    <p className="mt-1 text-2xl font-semibold text-neutral-900">
+                      {operatorTaskCount}
+                    </p>
                   </div>
                   <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
-                    <p className="text-xs uppercase text-neutral-500">Total tasks</p>
-                    <p className="mt-1 text-2xl font-semibold text-neutral-900">{tasks.length}</p>
+                    <p className="text-xs uppercase text-neutral-500">
+                      Total tasks
+                    </p>
+                    <p className="mt-1 text-2xl font-semibold text-neutral-900">
+                      {tasks.length}
+                    </p>
                   </div>
                   <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
-                    <p className="text-xs uppercase text-neutral-500">Last updated</p>
+                    <p className="text-xs uppercase text-neutral-500">
+                      Last updated
+                    </p>
                     <p className="mt-1 text-sm text-neutral-700">
                       {selectedProperty.updatedAt
                         ? formatDateTime(selectedProperty.updatedAt)
@@ -964,15 +1150,20 @@ export default function AdminPropertiesPage() {
                   {activeTab === "summary" ? (
                     <div className="space-y-6">
                       <div>
-                        <h3 className="text-sm font-semibold text-neutral-800">Overview</h3>
+                        <h3 className="text-sm font-semibold text-neutral-800">
+                          Overview
+                        </h3>
                         <p className="mt-2 text-sm leading-relaxed text-neutral-600">
-                          {selectedProperty.description || "No description provided yet."}
+                          {selectedProperty.description ||
+                            "No description provided yet."}
                         </p>
                       </div>
                       <div className="grid gap-4 md:grid-cols-2">
                         <Card className="border-neutral-200">
                           <CardHeader>
-                            <CardTitle className="text-sm font-semibold text-neutral-700">Partner organisation</CardTitle>
+                            <CardTitle className="text-sm font-semibold text-neutral-700">
+                              Partner organisation
+                            </CardTitle>
                           </CardHeader>
                           <CardContent className="text-sm text-neutral-600">
                             {selectedProperty.partnerOrgId}
@@ -980,10 +1171,13 @@ export default function AdminPropertiesPage() {
                         </Card>
                         <Card className="border-neutral-200">
                           <CardHeader>
-                            <CardTitle className="text-sm font-semibold text-neutral-700">Address</CardTitle>
+                            <CardTitle className="text-sm font-semibold text-neutral-700">
+                              Address
+                            </CardTitle>
                           </CardHeader>
                           <CardContent className="text-sm text-neutral-600">
-                            {selectedProperty.address || "Add an address to help operators navigate."}
+                            {selectedProperty.address ||
+                              "Add an address to help operators navigate."}
                           </CardContent>
                         </Card>
                       </div>
@@ -994,10 +1188,21 @@ export default function AdminPropertiesPage() {
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
                         <div>
-                          <h3 className="text-sm font-semibold text-neutral-800">Media library</h3>
-                          <p className="text-xs text-neutral-500">Upload reference photos or floor plans for operators.</p>
+                          <h3 className="text-sm font-semibold text-neutral-800">
+                            Media library
+                          </h3>
+                          <p className="text-xs text-neutral-500">
+                            Upload reference photos or floor plans for
+                            operators.
+                          </p>
                         </div>
-                        <Button variant="outline" size="sm" onClick={() => openEditPropertyDrawer(selectedProperty)}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            openEditPropertyDrawer(selectedProperty)
+                          }
+                        >
                           <UploadCloud className="mr-2 h-4 w-4" /> Manage media
                         </Button>
                       </div>
@@ -1009,7 +1214,12 @@ export default function AdminPropertiesPage() {
                               className="relative h-40 w-full overflow-hidden rounded-xl border border-neutral-200"
                             >
                               {item.type === "image" ? (
-                                <Image src={item.url} alt={selectedProperty.name} fill className="object-cover" />
+                                <Image
+                                  src={item.url}
+                                  alt={selectedProperty.name}
+                                  fill
+                                  className="object-cover"
+                                />
                               ) : (
                                 <video
                                   src={item.url}
@@ -1026,7 +1236,8 @@ export default function AdminPropertiesPage() {
                         </div>
                       ) : (
                         <div className="rounded-xl border border-dashed border-neutral-300 bg-neutral-50 p-8 text-center text-sm text-neutral-500">
-                          No media uploaded yet. Add imagery or walkthrough videos so operators know what to expect on site.
+                          No media uploaded yet. Add imagery or walkthrough
+                          videos so operators know what to expect on site.
                         </div>
                       )}
                     </div>
@@ -1040,7 +1251,10 @@ export default function AdminPropertiesPage() {
                       {tasksLoading ? (
                         <div className="space-y-3">
                           {Array.from({ length: 4 }).map((_, index) => (
-                            <div key={index} className="h-16 animate-pulse rounded-xl bg-neutral-100" />
+                            <div
+                              key={index}
+                              className="h-16 animate-pulse rounded-xl bg-neutral-100"
+                            />
                           ))}
                         </div>
                       ) : tasks.length ? (
@@ -1052,23 +1266,41 @@ export default function AdminPropertiesPage() {
                               <TableHead>Status</TableHead>
                               <TableHead>Duration</TableHead>
                               <TableHead>Priority</TableHead>
-                              <TableHead className="text-right">Actions</TableHead>
+                              <TableHead className="text-right">
+                                Actions
+                              </TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
                             {tasks.map((task) => (
                               <TableRow key={task.id}>
-                                <TableCell className="font-medium">{task.name}</TableCell>
+                                <TableCell className="font-medium">
+                                  {task.name}
+                                </TableCell>
                                 <TableCell>
-                                  <Badge variant={task.assignment === "oem_teleoperator" ? "default" : "secondary"}>
-                                    {task.assignment === "oem_teleoperator" ? "Teleoperator" : "Human"}
+                                  <Badge
+                                    variant={
+                                      task.assignment === "oem_teleoperator"
+                                        ? "default"
+                                        : "secondary"
+                                    }
+                                  >
+                                    {task.assignment === "oem_teleoperator"
+                                      ? "Teleoperator"
+                                      : "Human"}
                                   </Badge>
                                 </TableCell>
                                 <TableCell>{task.status}</TableCell>
-                                <TableCell>{task.duration ? `${task.duration} min` : "—"}</TableCell>
+                                <TableCell>
+                                  {task.duration ? `${task.duration} min` : "—"}
+                                </TableCell>
                                 <TableCell>{task.priority ?? "—"}</TableCell>
                                 <TableCell className="flex justify-end gap-2">
-                                  <Button size="sm" variant="outline" onClick={() => openTaskDrawer(task)}>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => openTaskDrawer(task)}
+                                  >
                                     Edit
                                   </Button>
                                   <ConfirmDialog
@@ -1078,7 +1310,11 @@ export default function AdminPropertiesPage() {
                                     destructive
                                     onConfirm={() => deleteTask(task)}
                                   >
-                                    <Button size="sm" variant="destructive" disabled={deletingTaskId === task.id}>
+                                    <Button
+                                      size="sm"
+                                      variant="destructive"
+                                      disabled={deletingTaskId === task.id}
+                                    >
                                       Delete
                                     </Button>
                                   </ConfirmDialog>
@@ -1089,7 +1325,8 @@ export default function AdminPropertiesPage() {
                         </Table>
                       ) : (
                         <div className="rounded-xl border border-dashed border-neutral-300 bg-neutral-50 p-8 text-center text-sm text-neutral-500">
-                          No tasks yet. Create a task to assign work to your operators.
+                          No tasks yet. Create a task to assign work to your
+                          operators.
                         </div>
                       )}
                     </div>
@@ -1097,8 +1334,12 @@ export default function AdminPropertiesPage() {
                 </div>
               </div>
 
-              <Button variant="ghost" size="sm" onClick={() => router.push("/properties")}
-                className="flex items-center gap-2 text-sm text-neutral-500 hover:text-neutral-900">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => router.push("/properties")}
+                className="flex items-center gap-2 text-sm text-neutral-500 hover:text-neutral-900"
+              >
                 <ArrowLeft className="h-4 w-4" /> Go to operator view
               </Button>
             </div>
@@ -1108,9 +1349,12 @@ export default function AdminPropertiesPage() {
                 <Layers className="h-6 w-6 text-neutral-400" />
               </div>
               <div className="max-w-sm space-y-2">
-                <h2 className="text-xl font-semibold text-neutral-900">Choose a property to get started</h2>
+                <h2 className="text-xl font-semibold text-neutral-900">
+                  Choose a property to get started
+                </h2>
                 <p className="text-sm text-neutral-500">
-                  Browse the list on the left or create a new property to begin managing tasks and media.
+                  Browse the list on the left or create a new property to begin
+                  managing tasks and media.
                 </p>
               </div>
               <Button onClick={openCreatePropertyDrawer}>
@@ -1121,12 +1365,19 @@ export default function AdminPropertiesPage() {
         </section>
       </section>
 
-      <Sheet open={propertyDrawerOpen} onOpenChange={(open) => (open ? setPropertyDrawerOpen(true) : closePropertyDrawer())}>
+      <Sheet
+        open={propertyDrawerOpen}
+        onOpenChange={(open) =>
+          open ? setPropertyDrawerOpen(true) : closePropertyDrawer()
+        }
+      >
         <SheetContent className="w-full max-w-xl border-l border-neutral-200">
           <div className="flex h-full flex-col pt-16">
             <div className="flex-1 overflow-y-auto px-6">
               <SheetHeader>
-                <SheetTitle>{editingProperty ? "Edit property" : "Create property"}</SheetTitle>
+                <SheetTitle>
+                  {editingProperty ? "Edit property" : "Create property"}
+                </SheetTitle>
                 <SheetDescription>
                   {editingProperty
                     ? `Update core details, media, and tasks for ${editingProperty.name}.`
@@ -1142,13 +1393,17 @@ export default function AdminPropertiesPage() {
 
               <div className="mt-4 space-y-4">
                 <div className="flex items-center justify-between text-xs font-medium text-neutral-500">
-                  <span>Step {propertyFormStepIndex + 1} of {FORM_STEPS.length}</span>
+                  <span>
+                    Step {propertyFormStepIndex + 1} of {FORM_STEPS.length}
+                  </span>
                   <span>{FORM_STEPS[propertyFormStepIndex]}</span>
                 </div>
                 <div className="h-1 w-full rounded-full bg-neutral-200">
                   <div
                     className="h-full rounded-full bg-neutral-900 transition-all"
-                    style={{ width: `${((propertyFormStepIndex + 1) / FORM_STEPS.length) * 100}%` }}
+                    style={{
+                      width: `${((propertyFormStepIndex + 1) / FORM_STEPS.length) * 100}%`,
+                    }}
                   />
                 </div>
 
@@ -1166,19 +1421,27 @@ export default function AdminPropertiesPage() {
                         id="property-name"
                         value={propertyFormState.name}
                         onChange={(event) =>
-                          setPropertyFormState((prev) => ({ ...prev, name: event.target.value }))
+                          setPropertyFormState((prev) => ({
+                            ...prev,
+                            name: event.target.value,
+                          }))
                         }
                         placeholder="Skyline Tower, Level 4"
                         required
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="property-partner">Partner organisation</Label>
+                      <Label htmlFor="property-partner">
+                        Partner organisation
+                      </Label>
                       <Input
                         id="property-partner"
                         value={propertyFormState.partnerOrgId}
                         onChange={(event) =>
-                          setPropertyFormState((prev) => ({ ...prev, partnerOrgId: event.target.value }))
+                          setPropertyFormState((prev) => ({
+                            ...prev,
+                            partnerOrgId: event.target.value,
+                          }))
                         }
                         placeholder="demo-org"
                         required
@@ -1190,7 +1453,10 @@ export default function AdminPropertiesPage() {
                         id="property-address"
                         value={propertyFormState.address}
                         onChange={(event) =>
-                          setPropertyFormState((prev) => ({ ...prev, address: event.target.value }))
+                          setPropertyFormState((prev) => ({
+                            ...prev,
+                            address: event.target.value,
+                          }))
                         }
                         placeholder="123 Market Street, San Francisco"
                       />
@@ -1226,12 +1492,16 @@ export default function AdminPropertiesPage() {
                         placeholder="Share a short briefing for operators…"
                         value={propertyFormState.description}
                         onChange={(event) =>
-                          setPropertyFormState((prev) => ({ ...prev, description: event.target.value }))
+                          setPropertyFormState((prev) => ({
+                            ...prev,
+                            description: event.target.value,
+                          }))
                         }
                       />
                     </div>
                     <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-4 text-sm text-neutral-600">
-                      Tip: include access instructions, preferred contact details, or links to standard operating procedures.
+                      Tip: include access instructions, preferred contact
+                      details, or links to standard operating procedures.
                     </div>
                   </div>
                 ) : null}
@@ -1250,20 +1520,29 @@ export default function AdminPropertiesPage() {
                           if (!files) return;
                           setPropertyFormState((prev) => ({
                             ...prev,
-                            uploadFiles: [...prev.uploadFiles, ...Array.from(files)],
+                            uploadFiles: [
+                              ...prev.uploadFiles,
+                              ...Array.from(files),
+                            ],
                           }));
                         }}
                       />
                       <p className="text-xs text-neutral-500">
-                        Upload reference photos (JPG, PNG, HEIC) or short video walkthroughs (MP4, MOV).
+                        Upload reference photos (JPG, PNG, HEIC) or short video
+                        walkthroughs (MP4, MOV).
                       </p>
                     </div>
                     {propertyFormState.existingMedia.length ? (
                       <div>
-                        <p className="text-xs font-medium text-neutral-500">Existing media</p>
+                        <p className="text-xs font-medium text-neutral-500">
+                          Existing media
+                        </p>
                         <div className="mt-2 grid gap-3 sm:grid-cols-2">
                           {propertyFormState.existingMedia.map((item) => {
-                            const markedForRemoval = propertyFormState.removedMediaIds.includes(item.id);
+                            const markedForRemoval =
+                              propertyFormState.removedMediaIds.includes(
+                                item.id,
+                              );
                             return (
                               <div
                                 key={item.id}
@@ -1273,7 +1552,12 @@ export default function AdminPropertiesPage() {
                                 )}
                               >
                                 {item.type === "image" ? (
-                                  <Image src={item.url} alt="Property media" fill className="object-cover" />
+                                  <Image
+                                    src={item.url}
+                                    alt="Property media"
+                                    fill
+                                    className="object-cover"
+                                  />
                                 ) : (
                                   <video
                                     src={item.url}
@@ -1283,7 +1567,14 @@ export default function AdminPropertiesPage() {
                                   />
                                 )}
                                 <div className="absolute left-2 top-2 flex items-center gap-2">
-                                  <Badge variant={item.type === "image" ? "secondary" : "default"} className="uppercase">
+                                  <Badge
+                                    variant={
+                                      item.type === "image"
+                                        ? "secondary"
+                                        : "default"
+                                    }
+                                    className="uppercase"
+                                  >
                                     {item.type === "image" ? "Image" : "Video"}
                                   </Badge>
                                   {markedForRemoval ? (
@@ -1294,12 +1585,16 @@ export default function AdminPropertiesPage() {
                                 </div>
                                 <Button
                                   size="sm"
-                                  variant={markedForRemoval ? "default" : "secondary"}
+                                  variant={
+                                    markedForRemoval ? "default" : "secondary"
+                                  }
                                   onClick={() =>
                                     setPropertyFormState((prev) => ({
                                       ...prev,
                                       removedMediaIds: markedForRemoval
-                                        ? prev.removedMediaIds.filter((id) => id !== item.id)
+                                        ? prev.removedMediaIds.filter(
+                                            (id) => id !== item.id,
+                                          )
                                         : [...prev.removedMediaIds, item.id],
                                     }))
                                   }
@@ -1315,14 +1610,18 @@ export default function AdminPropertiesPage() {
                     ) : null}
                     {propertyFormState.uploadFiles.length ? (
                       <div>
-                        <p className="text-xs font-medium text-neutral-500">Pending uploads</p>
+                        <p className="text-xs font-medium text-neutral-500">
+                          Pending uploads
+                        </p>
                         <ul className="mt-2 space-y-2 text-sm text-neutral-600">
                           {propertyFormState.uploadFiles.map((file, index) => (
                             <li key={`${file.name}-${index}`}>
                               <span className="truncate pr-2">
                                 {file.name}
                                 <span className="ml-2 text-xs uppercase text-neutral-400">
-                                  {inferMediaType(file) === "video" ? "Video" : "Image"}
+                                  {inferMediaType(file) === "video"
+                                    ? "Video"
+                                    : "Image"}
                                 </span>
                               </span>
                             </li>
@@ -1335,17 +1634,24 @@ export default function AdminPropertiesPage() {
               </div>
 
               <SheetFooter>
-                <Button variant="outline" onClick={previousFormStep} disabled={propertyFormStepIndex === 0}>
+                <Button
+                  variant="outline"
+                  onClick={previousFormStep}
+                  disabled={propertyFormStepIndex === 0}
+                >
                   Previous
                 </Button>
-                <Button onClick={nextFormStep} disabled={propertyFormStepIndex === FORM_STEPS.length - 1}>
+                <Button
+                  onClick={nextFormStep}
+                  disabled={propertyFormStepIndex === FORM_STEPS.length - 1}
+                >
                   Next
                 </Button>
-                <Button 
+                <Button
                   onClick={() => {
                     console.log("[admin] Save button clicked");
                     void persistProperty();
-                  }} 
+                  }}
                   disabled={propertySaving}
                 >
                   {propertySaving ? "Saving..." : "Save property"}

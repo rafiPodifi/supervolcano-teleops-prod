@@ -6,9 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.supervolcano.camera",
@@ -16,14 +14,8 @@
       "infoPlist": {
         "NSCameraUsageDescription": "This app needs camera access to record videos at work locations.",
         "NSMicrophoneUsageDescription": "This app needs microphone access to record videos with audio.",
-        "NSBluetoothAlwaysUsageDescription": "SuperVolcano uses Bluetooth to connect to your GoPro camera for automatic recording",
-        "NSBluetoothPeripheralUsageDescription": "SuperVolcano uses Bluetooth to connect to your GoPro camera",
         "NSLocationWhenInUseUsageDescription": "SuperVolcano uses your location to auto-fill your property address",
-        "UIBackgroundModes": [
-          "bluetooth-central",
-          "fetch",
-          "processing"
-        ],
+        "UIBackgroundModes": ["fetch", "processing"],
         "ITSAppUsesNonExemptEncryption": false
       }
     },
@@ -36,10 +28,6 @@
       "permissions": [
         "CAMERA",
         "RECORD_AUDIO",
-        "android.permission.BLUETOOTH",
-        "android.permission.BLUETOOTH_ADMIN",
-        "android.permission.BLUETOOTH_CONNECT",
-        "android.permission.BLUETOOTH_SCAN",
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION"
       ],
@@ -61,24 +49,14 @@
         }
       ],
       [
-        "react-native-ble-plx",
-        {
-          "isBackgroundEnabled": true,
-          "modes": [
-            "peripheral",
-            "central"
-          ],
-          "bluetoothAlwaysPermission": "Allow SuperVolcano Camera to connect to your GoPro camera"
-        }
-      ],
-      [
         "expo-location",
         {
           "locationWhenInUsePermission": "SuperVolcano uses your location to auto-fill your property address"
         }
       ],
       "expo-background-fetch",
-      "expo-task-manager"
+      "expo-task-manager",
+      "./modules/external-camera/app.plugin.js"
     ],
     "extra": {
       "eas": {

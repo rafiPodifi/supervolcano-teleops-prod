@@ -2,6 +2,7 @@
   "name": "mobile-app",
   "version": "1.0.0",
   "main": "index.ts",
+  "packageManager": "pnpm@9.15.4",
   "scripts": {
     "start": "expo start",
     "start:tunnel": "expo start --tunnel",
@@ -11,13 +12,13 @@
     "install:auto": "./scripts/install-and-commit.sh",
     "install:save": "./scripts/install-and-commit.sh --save",
     "install:save-dev": "./scripts/install-and-commit.sh --save-dev",
-    "eas:build:configure": "npx eas-cli@latest build:configure",
-    "eas:build:ios": "npx eas-cli@latest build --platform ios --profile preview",
-    "eas:build:android": "npx eas-cli@latest build --platform android --profile preview",
-    "eas:build:all": "npx eas-cli@latest build --platform all --profile preview",
-    "eas:update": "npx eas-cli@latest update --branch preview",
-    "eas:build:list": "npx eas-cli@latest build:list",
-    "eas:device:create": "npx eas-cli@latest device:create"
+    "eas:build:configure": "pnpm dlx eas-cli@latest build:configure",
+    "eas:build:ios": "pnpm dlx eas-cli@latest build --platform ios --profile preview",
+    "eas:build:android": "pnpm dlx eas-cli@latest build --platform android --profile preview",
+    "eas:build:all": "pnpm dlx eas-cli@latest build --platform all --profile preview",
+    "eas:update": "pnpm dlx eas-cli@latest update --branch preview",
+    "eas:build:list": "pnpm dlx eas-cli@latest build:list",
+    "eas:device:create": "pnpm dlx eas-cli@latest device:create"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -45,11 +46,9 @@
     "firebase": "^12.6.0",
     "lucide-react-native": "^0.555.0",
     "react": "19.1.0",
-    "react-devtools-core": "^7.0.1",
     "react-dom": "19.1.0",
     "react-freeze": "^1.0.4",
     "react-native": "0.81.5",
-    "react-native-ble-plx": "^3.5.0",
     "react-native-confetti-cannon": "^1.5.2",
     "react-native-google-places-autocomplete": "^2.6.1",
     "react-native-reanimated": "~4.1.1",
@@ -62,7 +61,7 @@
   "devDependencies": {
     "@expo/ngrok": "^4.1.0",
     "@types/react": "~19.1.0",
-    "babel-plugin-module-resolver": "^5.0.2",
+    "babel-plugin-module-resolver": "^5.0.3",
     "typescript": "~5.9.2"
   },
   "private": true

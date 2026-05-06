@@ -4,16 +4,28 @@
  * Survives app restarts, handles offline/online transitions
  */
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as FileSystem from 'expo-file-system/legacy';
-import NetInfo from '@react-native-community/netinfo';
-import * as BackgroundFetch from 'expo-background-fetch';
-import * as TaskManager from 'expo-task-manager';
-import { UploadedVideoArtifact, VideoUploadService } from './video-upload.service';
-import { normalizeLocalFileUri } from '@/utils/local-file-uri';
-import { UploadDebugLogEntry, UploadLogLevel, UploadStage } from './upload-debug.types';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as FileSystem from "expo-file-system/legacy";
+import NetInfo from "@react-native-community/netinfo";
+import * as BackgroundFetch from "expo-background-fetch";
+import * as TaskManager from "expo-task-manager";
+import {
+  AppState,
+  AppStateStatus,
+  NativeEventSubscription,
+} from "react-native";
+import {
+  UploadedVideoArtifact,
+  VideoUploadService,
+} from "./video-upload.service";
+import { normalizeLocalFileUri } from "@/utils/local-file-uri";
+import {
+  UploadDebugLogEntry,
+  UploadLogLevel,
+  UploadStage,
+} from "./upload-debug.types";
 
-const UPLOAD_TASK_NAME = 'SUPERVOLCANO_UPLOAD_QUEUE';
+const UPLOAD_TASK_NAME = "SUPERVOLCANO_UPLOAD_QUEUE";
 
 // Defined at module level — task callback runs when OS fires the background task.
 // By that time the module is fully loaded and UploadQueueService is available.
@@ -26,8 +38,8 @@ TaskManager.defineTask(UPLOAD_TASK_NAME, async () => {
   }
 });
 
-const QUEUE_STORAGE_KEY = '@upload_queue';
-const DEBUG_LOGS_STORAGE_KEY = '@upload_queue_debug_logs';
+const QUEUE_STORAGE_KEY = "@upload_queue";
+const DEBUG_LOGS_STORAGE_KEY = "@upload_queue_debug_logs";
 const VIDEOS_DIR = `${FileSystem.documentDirectory}videos/`;
 const MAX_RETRIES = 5;
 const MAX_DEBUG_LOGS = 200;
@@ -56,8 +68,8 @@ export interface QueuedVideo {
   uploadedFileSize?: number;
   uploadedDurationSeconds?: number;
   remoteUploadCompletedAt?: string;
-  recordingMode: 'assigned' | 'generic';
-  status: 'needs_assignment' | 'pending' | 'uploading' | 'failed';
+  recordingMode: "assigned" | "generic";
+  status: "needs_assignment" | "pending" | "uploading" | "failed";
 }
 
 export interface QueueStatus {
@@ -96,6 +108,8 @@ class UploadQueueServiceClass {
   private debugListeners: Set<QueueDebugListener> = new Set();
   private retryTimer: ReturnType<typeof setInterval> | null = null;
   private networkUnsubscribe: (() => void) | null = null;
+  private appStateSubscription: NativeEventSubscription | null = null;
+  private lastAppState: AppStateStatus = AppState.currentState;
 
   async initialize(): Promise<void> {
     if (this.isInitialized) {
@@ -103,25 +117,30 @@ class UploadQueueServiceClass {
     }
 
     this.isInitialized = true;
-    console.log('[UploadQueue] Initializing...');
+    console.log("[UploadQueue] Initializing...");
 
     await this.ensureVideosDirectory();
     await this.loadDebugLogs();
     await this.loadQueue();
     this.startNetworkMonitoring();
-    this.appendGlobalLog('info', 'Upload queue initialized');
+    this.startAppStateMonitoring();
+    this.appendGlobalLog("info", "Upload queue initialized");
     this.notifyListeners();
     void this.processQueue();
 
     BackgroundFetch.registerTaskAsync(UPLOAD_TASK_NAME, {
-      minimumInterval: 60,    // seconds; OS may call more or less frequently
+      minimumInterval: 60, // seconds; OS may call more or less frequently
       stopOnTerminate: false, // Android: keep registered after app is closed
-      startOnBoot: true,      // Android: re-register after device restart
+      startOnBoot: true, // Android: re-register after device restart
     }).catch(() => {
       // Silently ignore — task already registered or platform unsupported
     });
 
-    console.log('[UploadQueue] Initialized with', this.queue.length, 'pending uploads');
+    console.log(
+      "[UploadQueue] Initialized with",
+      this.queue.length,
+      "pending uploads",
+    );
   }
 
   cleanup(): void {
@@ -134,6 +153,8 @@ class UploadQueueServiceClass {
     }
     this.networkUnsubscribe?.();
     this.networkUnsubscribe = null;
+    this.appStateSubscription?.remove();
+    this.appStateSubscription = null;
     BackgroundFetch.unregisterTaskAsync(UPLOAD_TASK_NAME).catch(() => {});
   }
 
@@ -150,11 +171,19 @@ class UploadQueueServiceClass {
   }
 
   getStatus(): QueueStatus {
-    const needsAssignment = this.queue.filter(v => v.status === 'needs_assignment').length;
-    const pending = this.queue.filter(v => v.status === 'pending').length;
-    const uploading = this.queue.filter(v => v.status === 'uploading').length;
-    const failed = this.queue.filter(v => v.status === 'failed').length;
-    return { needsAssignment, pending, uploading, failed, total: this.queue.length };
+    const needsAssignment = this.queue.filter(
+      (v) => v.status === "needs_assignment",
+    ).length;
+    const pending = this.queue.filter((v) => v.status === "pending").length;
+    const uploading = this.queue.filter((v) => v.status === "uploading").length;
+    const failed = this.queue.filter((v) => v.status === "failed").length;
+    return {
+      needsAssignment,
+      pending,
+      uploading,
+      failed,
+      total: this.queue.length,
+    };
   }
 
   getDebugSnapshot(): QueueDebugSnapshot {
@@ -176,7 +205,7 @@ class UploadQueueServiceClass {
     level: UploadLogLevel,
     message: string,
     details?: string,
-    stage?: UploadStage
+    stage?: UploadStage,
   ): void {
     this.appendGlobalLog(level, message, stage, undefined, details);
     void this.saveDebugLogs();
@@ -193,24 +222,27 @@ class UploadQueueServiceClass {
       segmentNumber: number;
       startedAt: string;
       endedAt: string;
-      recordingMode?: 'assigned' | 'generic';
-    }
+      recordingMode?: "assigned" | "generic";
+    },
   ): Promise<string> {
     const normalizedTempVideoUri = normalizeLocalFileUri(tempVideoUri);
-    console.log('[UploadQueue] Adding video to queue:', normalizedTempVideoUri);
+    console.log("[UploadQueue] Adding video to queue:", normalizedTempVideoUri);
 
     const id = `vid_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const filename = `${id}.mov`;
     const persistentPath = `${VIDEOS_DIR}${filename}`;
     const now = new Date().toISOString();
     const hasAssignment = Boolean(payload.locationId && payload.jobId);
-    const recordingMode = payload.recordingMode ?? (hasAssignment ? 'assigned' : 'generic');
+    const recordingMode =
+      payload.recordingMode ?? (hasAssignment ? "assigned" : "generic");
 
     try {
-      const sourceFileInfo = await FileSystem.getInfoAsync(normalizedTempVideoUri);
+      const sourceFileInfo = await FileSystem.getInfoAsync(
+        normalizedTempVideoUri,
+      );
       if (!sourceFileInfo.exists) {
         throw new Error(
-          `Source recording file not found. raw=${tempVideoUri} normalized=${normalizedTempVideoUri}`
+          `Source recording file not found. raw=${tempVideoUri} normalized=${normalizedTempVideoUri}`,
         );
       }
 
@@ -218,11 +250,11 @@ class UploadQueueServiceClass {
         from: normalizedTempVideoUri,
         to: persistentPath,
       });
-      console.log('[UploadQueue] Moved video to:', persistentPath);
+      console.log("[UploadQueue] Moved video to:", persistentPath);
 
       const fileInfo = await FileSystem.getInfoAsync(persistentPath);
       if (!fileInfo.exists) {
-        throw new Error('Failed to persist video file');
+        throw new Error("Failed to persist video file");
       }
 
       const queuedVideo: QueuedVideo = {
@@ -231,7 +263,7 @@ class UploadQueueServiceClass {
         locationId: payload.locationId,
         locationName: payload.locationName,
         jobId: payload.jobId,
-        jobTitle: payload.jobTitle ?? 'Generic recording',
+        jobTitle: payload.jobTitle ?? "Generic recording",
         segmentNumber: payload.segmentNumber,
         startedAt: payload.startedAt,
         endedAt: payload.endedAt,
@@ -239,66 +271,74 @@ class UploadQueueServiceClass {
         updatedAt: now,
         retryCount: 0,
         progress: 0,
-        stage: 'queued',
+        stage: "queued",
         logs: [],
         recordingMode,
-        status: hasAssignment ? 'pending' : 'needs_assignment',
+        status: hasAssignment ? "pending" : "needs_assignment",
       };
 
       this.appendVideoLog(
         queuedVideo,
-        'info',
+        "info",
         hasAssignment
-          ? 'Segment queued for background upload'
-          : 'Recording saved locally and is waiting for location and task assignment',
-        'queued',
-        persistentPath
+          ? "Segment queued for background upload"
+          : "Recording saved locally and is waiting for location and task assignment",
+        "queued",
+        persistentPath,
       );
 
       this.queue.push(queuedVideo);
       await this.persistState();
 
       try {
-        await FileSystem.deleteAsync(normalizedTempVideoUri, { idempotent: true });
+        await FileSystem.deleteAsync(normalizedTempVideoUri, {
+          idempotent: true,
+        });
       } catch (error) {
         this.appendVideoLog(
           queuedVideo,
-          'info',
-          'Temporary source file could not be deleted after queueing',
-          'queued',
-          String(error)
+          "info",
+          "Temporary source file could not be deleted after queueing",
+          "queued",
+          String(error),
         );
       }
 
       void this.processQueue();
-      console.log('[UploadQueue] Video queued successfully:', id);
+      console.log("[UploadQueue] Video queued successfully:", id);
       return id;
     } catch (error: any) {
       this.appendGlobalLog(
-        'error',
-        'Failed to add video to upload queue',
+        "error",
+        "Failed to add video to upload queue",
         undefined,
         undefined,
-        error?.message || String(error)
+        error?.message || String(error),
       );
-      console.error('[UploadQueue] Failed to queue video:', error);
+      console.error("[UploadQueue] Failed to queue video:", error);
       throw error;
     }
   }
 
   async processQueue(): Promise<void> {
     if (this.isProcessing) {
-      this.appendGlobalLog('info', 'Queue processing skipped because it is already running');
+      this.appendGlobalLog(
+        "info",
+        "Queue processing skipped because it is already running",
+      );
       return;
     }
 
     if (!this.isOnline) {
-      this.appendGlobalLog('info', 'Queue processing paused because app is offline');
+      this.appendGlobalLog(
+        "info",
+        "Queue processing paused because app is offline",
+      );
       return;
     }
 
     const pendingVideos = this.queue.filter(
-      v => v.status === 'pending' || v.status === 'failed'
+      (v) => v.status === "pending" || v.status === "failed",
     );
 
     if (pendingVideos.length === 0) {
@@ -307,12 +347,18 @@ class UploadQueueServiceClass {
 
     this.isProcessing = true;
     this.notifyListeners();
-    this.appendGlobalLog('info', `Processing ${pendingVideos.length} queued upload(s)`);
+    this.appendGlobalLog(
+      "info",
+      `Processing ${pendingVideos.length} queued upload(s)`,
+    );
 
     try {
       for (const video of pendingVideos) {
         if (!this.isOnline) {
-          this.appendGlobalLog('info', 'Stopping queue processing after network loss');
+          this.appendGlobalLog(
+            "info",
+            "Stopping queue processing after network loss",
+          );
           break;
         }
 
@@ -325,14 +371,14 @@ class UploadQueueServiceClass {
   }
 
   async retryFailed(): Promise<void> {
-    const failed = this.queue.filter(v => v.status === 'failed');
+    const failed = this.queue.filter((v) => v.status === "failed");
     for (const video of failed) {
-      video.status = 'pending';
+      video.status = "pending";
       video.retryCount = 0;
       video.progress = 0;
-      video.stage = 'queued';
+      video.stage = "queued";
       video.lastError = undefined;
-      this.appendVideoLog(video, 'info', 'Manual retry requested', 'queued');
+      this.appendVideoLog(video, "info", "Manual retry requested", "queued");
     }
     await this.persistState();
     void this.processQueue();
@@ -340,27 +386,30 @@ class UploadQueueServiceClass {
 
   async retryItem(id: string): Promise<void> {
     const video = this.queue.find((item) => item.id === id);
-    if (!video || video.status !== 'failed') {
+    if (!video || video.status !== "failed") {
       return;
     }
 
-    video.status = 'pending';
+    video.status = "pending";
     video.retryCount = 0;
     video.progress = 0;
-    video.stage = 'queued';
+    video.stage = "queued";
     video.lastError = undefined;
-    this.appendVideoLog(video, 'info', 'Manual item retry requested', 'queued');
+    this.appendVideoLog(video, "info", "Manual item retry requested", "queued");
     await this.persistState();
     void this.processQueue();
   }
 
-  async assignItem(id: string, assignment: QueueAssignmentInput): Promise<void> {
+  async assignItem(
+    id: string,
+    assignment: QueueAssignmentInput,
+  ): Promise<void> {
     const video = this.queue.find((item) => item.id === id);
     if (!video) {
-      throw new Error('Queued recording not found.');
+      throw new Error("Queued recording not found.");
     }
 
-    if (video.status !== 'needs_assignment') {
+    if (video.status !== "needs_assignment") {
       return;
     }
 
@@ -368,16 +417,16 @@ class UploadQueueServiceClass {
     video.locationName = assignment.locationName;
     video.jobId = assignment.jobId;
     video.jobTitle = assignment.jobTitle;
-    video.status = 'pending';
+    video.status = "pending";
     video.progress = 0;
     video.lastError = undefined;
-    video.stage = 'queued';
+    video.stage = "queued";
     this.appendVideoLog(
       video,
-      'info',
-      'Assignment completed. Recording is ready to upload.',
-      'queued',
-      `${assignment.locationName} / ${assignment.jobTitle}`
+      "info",
+      "Assignment completed. Recording is ready to upload.",
+      "queued",
+      `${assignment.locationName} / ${assignment.jobTitle}`,
     );
     await this.persistState();
     void this.processQueue();
@@ -392,7 +441,10 @@ class UploadQueueServiceClass {
     let fileSize = 0;
     try {
       const fileInfo = await FileSystem.getInfoAsync(video.localPath);
-      fileSize = 'size' in fileInfo && typeof fileInfo.size === 'number' ? fileInfo.size : 0;
+      fileSize =
+        "size" in fileInfo && typeof fileInfo.size === "number"
+          ? fileInfo.size
+          : 0;
     } catch {
       fileSize = 0;
     }
@@ -404,8 +456,8 @@ class UploadQueueServiceClass {
     }
 
     this.appendGlobalLog(
-      'info',
-      'Queued recording deleted before upload',
+      "info",
+      "Queued recording deleted before upload",
       undefined,
       video.id,
       JSON.stringify({
@@ -413,7 +465,7 @@ class UploadQueueServiceClass {
         deletedAt: new Date().toISOString(),
         fileSize,
         segmentNumber: video.segmentNumber,
-      })
+      }),
     );
 
     this.queue = this.queue.filter((item) => item.id !== id);
@@ -430,38 +482,49 @@ class UploadQueueServiceClass {
     }
 
     this.queue = [];
-    this.appendGlobalLog('info', 'Queue cleared manually');
+    this.appendGlobalLog("info", "Queue cleared manually");
     await this.persistState();
   }
 
   private async uploadVideo(video: QueuedVideo): Promise<void> {
-    console.log('[UploadQueue] Uploading:', video.id);
+    console.log("[UploadQueue] Uploading:", video.id);
 
-    if (!video.locationId || !video.locationName || !video.jobId || !video.jobTitle) {
-      video.status = 'needs_assignment';
+    if (
+      !video.locationId ||
+      !video.locationName ||
+      !video.jobId ||
+      !video.jobTitle
+    ) {
+      video.status = "needs_assignment";
       video.progress = 0;
       video.lastError = undefined;
       this.appendVideoLog(
         video,
-        'info',
-        'Upload paused until location and task are assigned',
-        'queued'
+        "info",
+        "Upload paused until location and task are assigned",
+        "queued",
       );
       await this.persistState();
       return;
     }
 
-    video.status = 'uploading';
+    video.status = "uploading";
     video.progress = 0;
     video.lastError = undefined;
-    this.appendVideoLog(video, 'info', 'Upload started', 'preparing_file');
+    this.appendVideoLog(video, "info", "Upload started", "preparing_file");
     await this.persistState();
 
     try {
       if (!video.storageUrl) {
         const fileInfo = await FileSystem.getInfoAsync(video.localPath);
         if (!fileInfo.exists) {
-          this.appendVideoLog(video, 'error', 'Queued file is missing on disk', 'failed', video.localPath);
+          this.appendVideoLog(
+            video,
+            "error",
+            "Queued file is missing on disk",
+            "failed",
+            video.localPath,
+          );
           await this.removeFromQueue(video.id);
           return;
         }
@@ -477,19 +540,35 @@ class UploadQueueServiceClass {
         endedAt: video.endedAt,
       };
 
-      const handleStage = (event: { stage: UploadStage; message: string; details?: string }) => {
-        if (event.stage === 'failed') {
-          video.status = 'failed';
-          video.stage = 'failed';
+      const handleStage = (event: {
+        stage: UploadStage;
+        message: string;
+        details?: string;
+      }) => {
+        if (event.stage === "failed") {
+          video.status = "failed";
+          video.stage = "failed";
           video.lastError = event.message;
-          this.appendVideoLog(video, 'error', event.message, 'failed', event.details);
+          this.appendVideoLog(
+            video,
+            "error",
+            event.message,
+            "failed",
+            event.details,
+          );
         } else {
-          video.status = 'uploading';
+          video.status = "uploading";
           video.stage = event.stage;
-          if (event.stage === 'completed') {
+          if (event.stage === "completed") {
             video.progress = 100;
           }
-          this.appendVideoLog(video, 'info', event.message, event.stage, event.details);
+          this.appendVideoLog(
+            video,
+            "info",
+            event.message,
+            event.stage,
+            event.details,
+          );
         }
         void this.persistState();
       };
@@ -503,25 +582,25 @@ class UploadQueueServiceClass {
             video.updatedAt = new Date().toISOString();
             this.notifyListeners();
           },
-          handleStage
+          handleStage,
         );
         this.applyUploadedArtifact(video, artifact);
         this.appendVideoLog(
           video,
-          'info',
-          'Firebase upload completed; waiting for portal metadata save',
-          'save_metadata',
-          artifact.storageUrl.substring(0, 120)
+          "info",
+          "Firebase upload completed; waiting for portal metadata save",
+          "save_metadata",
+          artifact.storageUrl.substring(0, 120),
         );
         await this.persistState();
       } else {
         video.progress = 100;
         this.appendVideoLog(
           video,
-          'info',
-          'Reusing existing Firebase upload and retrying metadata save only',
-          'save_metadata',
-          video.storageUrl.substring(0, 120)
+          "info",
+          "Reusing existing Firebase upload and retrying metadata save only",
+          "save_metadata",
+          video.storageUrl.substring(0, 120),
         );
         await this.persistState();
       }
@@ -534,43 +613,64 @@ class UploadQueueServiceClass {
           fileSize: video.uploadedFileSize ?? 0,
           durationSeconds: video.uploadedDurationSeconds ?? 0,
         },
-        handleStage
+        handleStage,
       );
 
       this.isOnline = true;
-      video.stage = 'completed';
+      video.stage = "completed";
       video.progress = 100;
-      this.appendVideoLog(video, 'info', 'Upload finished successfully', 'completed');
+      this.appendVideoLog(
+        video,
+        "info",
+        "Upload finished successfully",
+        "completed",
+      );
       await this.persistState();
 
       await FileSystem.deleteAsync(video.localPath, { idempotent: true });
       await this.removeFromQueue(video.id);
     } catch (error: any) {
-      const message = error?.message || 'Unknown upload error';
+      const message = error?.message || "Unknown upload error";
 
-      video.status = 'failed';
-      video.stage = 'failed';
+      video.status = "failed";
+      video.stage = "failed";
       video.lastError = message;
       video.retryCount += 1;
-      this.appendVideoLog(video, 'error', message, 'failed');
+      this.appendVideoLog(video, "error", message, "failed");
 
-      if (message.includes('network') || message.includes('Network')) {
+      if (message.includes("network") || message.includes("Network")) {
         this.isOnline = false;
       }
 
       if (video.retryCount < MAX_RETRIES) {
-        const delay = RETRY_DELAYS[Math.min(video.retryCount - 1, RETRY_DELAYS.length - 1)];
-        this.appendVideoLog(video, 'info', `Retry scheduled in ${delay}ms`, 'failed');
+        const delay =
+          RETRY_DELAYS[Math.min(video.retryCount - 1, RETRY_DELAYS.length - 1)];
+        this.appendVideoLog(
+          video,
+          "info",
+          `Retry scheduled in ${delay}ms`,
+          "failed",
+        );
         setTimeout(() => {
-          video.status = 'pending';
+          video.status = "pending";
           video.progress = 0;
-          video.stage = 'queued';
-          this.appendVideoLog(video, 'info', 'Retrying queued upload', 'queued');
+          video.stage = "queued";
+          this.appendVideoLog(
+            video,
+            "info",
+            "Retrying queued upload",
+            "queued",
+          );
           void this.persistState();
           void this.processQueue();
         }, delay);
       } else {
-        this.appendVideoLog(video, 'error', 'Max retries reached; waiting for manual retry', 'failed');
+        this.appendVideoLog(
+          video,
+          "error",
+          "Max retries reached; waiting for manual retry",
+          "failed",
+        );
       }
 
       await this.persistState();
@@ -578,7 +678,7 @@ class UploadQueueServiceClass {
   }
 
   private async removeFromQueue(id: string): Promise<void> {
-    this.queue = this.queue.filter(v => v.id !== id);
+    this.queue = this.queue.filter((v) => v.id !== id);
     await this.persistState();
   }
 
@@ -586,7 +686,7 @@ class UploadQueueServiceClass {
     const dirInfo = await FileSystem.getInfoAsync(VIDEOS_DIR);
     if (!dirInfo.exists) {
       await FileSystem.makeDirectoryAsync(VIDEOS_DIR, { intermediates: true });
-      console.log('[UploadQueue] Created videos directory');
+      console.log("[UploadQueue] Created videos directory");
     }
   }
 
@@ -594,9 +694,9 @@ class UploadQueueServiceClass {
     const now = new Date().toISOString();
     const hasAssignment = Boolean(item.locationId && item.jobId);
     const normalizedStatus =
-      item.status === 'uploading'
-        ? 'pending'
-        : item.status ?? (hasAssignment ? 'pending' : 'needs_assignment');
+      item.status === "uploading"
+        ? "pending"
+        : (item.status ?? (hasAssignment ? "pending" : "needs_assignment"));
 
     return {
       id: item.id,
@@ -604,7 +704,7 @@ class UploadQueueServiceClass {
       locationId: item.locationId,
       locationName: item.locationName,
       jobId: item.jobId,
-      jobTitle: item.jobTitle ?? 'Generic recording',
+      jobTitle: item.jobTitle ?? "Generic recording",
       segmentNumber: item.segmentNumber,
       startedAt: item.startedAt,
       endedAt: item.endedAt,
@@ -612,7 +712,7 @@ class UploadQueueServiceClass {
       updatedAt: item.updatedAt || item.createdAt || now,
       retryCount: item.retryCount ?? 0,
       progress: item.progress ?? 0,
-      stage: item.stage ?? 'queued',
+      stage: item.stage ?? "queued",
       logs: Array.isArray(item.logs) ? item.logs : [],
       lastError: item.lastError,
       storageUrl: item.storageUrl,
@@ -620,12 +720,19 @@ class UploadQueueServiceClass {
       uploadedFileSize: item.uploadedFileSize,
       uploadedDurationSeconds: item.uploadedDurationSeconds,
       remoteUploadCompletedAt: item.remoteUploadCompletedAt,
-      recordingMode: item.recordingMode ?? (hasAssignment ? 'assigned' : 'generic'),
-      status: hasAssignment || normalizedStatus === 'failed' ? normalizedStatus : 'needs_assignment',
+      recordingMode:
+        item.recordingMode ?? (hasAssignment ? "assigned" : "generic"),
+      status:
+        hasAssignment || normalizedStatus === "failed"
+          ? normalizedStatus
+          : "needs_assignment",
     };
   }
 
-  private applyUploadedArtifact(video: QueuedVideo, artifact: UploadedVideoArtifact): void {
+  private applyUploadedArtifact(
+    video: QueuedVideo,
+    artifact: UploadedVideoArtifact,
+  ): void {
     video.storageUrl = artifact.storageUrl;
     video.uploadedFileName = artifact.fileName;
     video.uploadedFileSize = artifact.fileSize;
@@ -643,23 +750,30 @@ class UploadQueueServiceClass {
       }
 
       const parsed = JSON.parse(data);
-      this.queue = Array.isArray(parsed) ? parsed.map((item) => this.normalizeQueuedVideo(item)) : [];
+      this.queue = Array.isArray(parsed)
+        ? parsed.map((item) => this.normalizeQueuedVideo(item))
+        : [];
       for (const video of this.queue) {
-        if (video.status === 'pending' && video.logs.length === 0) {
-          this.appendVideoLog(video, 'info', 'Recovered queued upload from disk', video.stage);
-        }
-        if (video.status === 'needs_assignment' && video.logs.length === 0) {
+        if (video.status === "pending" && video.logs.length === 0) {
           this.appendVideoLog(
             video,
-            'info',
-            'Recovered saved recording that is still waiting for assignment',
-            'queued'
+            "info",
+            "Recovered queued upload from disk",
+            video.stage,
+          );
+        }
+        if (video.status === "needs_assignment" && video.logs.length === 0) {
+          this.appendVideoLog(
+            video,
+            "info",
+            "Recovered saved recording that is still waiting for assignment",
+            "queued",
           );
         }
       }
       await this.saveQueue();
     } catch (error) {
-      console.error('[UploadQueue] Failed to load queue:', error);
+      console.error("[UploadQueue] Failed to load queue:", error);
       this.queue = [];
     }
   }
@@ -669,7 +783,7 @@ class UploadQueueServiceClass {
       const data = await AsyncStorage.getItem(DEBUG_LOGS_STORAGE_KEY);
       this.debugLogs = data ? JSON.parse(data) : [];
     } catch (error) {
-      console.error('[UploadQueue] Failed to load debug logs:', error);
+      console.error("[UploadQueue] Failed to load debug logs:", error);
       this.debugLogs = [];
     }
   }
@@ -678,15 +792,18 @@ class UploadQueueServiceClass {
     try {
       await AsyncStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(this.queue));
     } catch (error) {
-      console.error('[UploadQueue] Failed to save queue:', error);
+      console.error("[UploadQueue] Failed to save queue:", error);
     }
   }
 
   private async saveDebugLogs(): Promise<void> {
     try {
-      await AsyncStorage.setItem(DEBUG_LOGS_STORAGE_KEY, JSON.stringify(this.debugLogs));
+      await AsyncStorage.setItem(
+        DEBUG_LOGS_STORAGE_KEY,
+        JSON.stringify(this.debugLogs),
+      );
     } catch (error) {
-      console.error('[UploadQueue] Failed to save queue debug logs:', error);
+      console.error("[UploadQueue] Failed to save queue debug logs:", error);
     }
   }
 
@@ -712,7 +829,30 @@ class UploadQueueServiceClass {
       this.isOnline = nowOnline;
 
       if (nowOnline && wasOffline) {
-        this.appendGlobalLog('info', 'Network reconnected — resuming upload queue');
+        this.appendGlobalLog(
+          "info",
+          "Network reconnected — resuming upload queue",
+        );
+        void this.processQueue();
+      }
+    });
+  }
+
+  private startAppStateMonitoring(): void {
+    if (this.appStateSubscription) {
+      return;
+    }
+
+    this.appStateSubscription = AppState.addEventListener("change", (next) => {
+      const wasBackgrounded =
+        this.lastAppState === "background" || this.lastAppState === "inactive";
+      this.lastAppState = next;
+
+      if (next === "active" && wasBackgrounded) {
+        this.appendGlobalLog(
+          "info",
+          "App foregrounded — resuming upload queue",
+        );
         void this.processQueue();
       }
     });
@@ -723,7 +863,7 @@ class UploadQueueServiceClass {
     message: string,
     stage?: UploadStage,
     itemId?: string,
-    details?: string
+    details?: string,
   ): UploadDebugLogEntry {
     return {
       id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -741,7 +881,7 @@ class UploadQueueServiceClass {
     message: string,
     stage?: UploadStage,
     itemId?: string,
-    details?: string
+    details?: string,
   ): void {
     const entry = this.createLog(level, message, stage, itemId, details);
     this.debugLogs = [entry, ...this.debugLogs].slice(0, MAX_DEBUG_LOGS);
@@ -752,12 +892,12 @@ class UploadQueueServiceClass {
     level: UploadLogLevel,
     message: string,
     stage?: UploadStage,
-    details?: string
+    details?: string,
   ): void {
     const entry = this.createLog(level, message, stage, video.id, details);
     video.logs = [entry, ...video.logs].slice(0, MAX_ITEM_LOGS);
     video.updatedAt = entry.timestamp;
-    if (level === 'error') {
+    if (level === "error") {
       video.lastError = message;
     }
     if (stage) {
@@ -768,9 +908,9 @@ class UploadQueueServiceClass {
 
   private notifyListeners(): void {
     const status = this.getStatus();
-    this.listeners.forEach(listener => listener(status));
+    this.listeners.forEach((listener) => listener(status));
     const snapshot = this.getDebugSnapshot();
-    this.debugListeners.forEach(listener => listener(snapshot));
+    this.debugListeners.forEach((listener) => listener(snapshot));
   }
 }
 
