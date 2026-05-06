@@ -37,6 +37,7 @@
     ]
   },
   "dependencies": {
+    "@google-cloud/storage": "^7.19.0",
     "@google-cloud/video-intelligence": "^6.2.1",
     "@heroicons/react": "^2.2.0",
     "@neondatabase/serverless": "^1.0.2",
