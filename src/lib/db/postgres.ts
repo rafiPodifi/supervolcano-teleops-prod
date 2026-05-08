@@ -1,36 +1,55 @@
-import { neon, Pool } from '@neondatabase/serverless';
+import { Pool, type QueryResult } from "pg";
 
-const databaseUrl = process.env.POSTGRES_URL 
-  || process.env.svdb_POSTGRES_URL 
-  || process.env.DATABASE_URL;
+let cachedPool: Pool | null = null;
 
-if (!databaseUrl) {
-  throw new Error('Missing database URL environment variable');
-}
+const getPool = (): Pool => {
+  if (cachedPool) return cachedPool;
 
-console.log('[DB] Connecting to:', databaseUrl.split('@')[1]?.split('/')[0] || 'unknown host');
+  const databaseUrl =
+    process.env.DATABASE_URL ||
+    process.env.POSTGRES_URL ||
+    process.env.svdb_POSTGRES_URL;
 
-// For tagged template literals (sql`SELECT ...`)
-const neonSql = neon(databaseUrl);
-
-// For raw query strings (sql.query("SELECT ...", [params]))
-const pool = new Pool({ connectionString: databaseUrl });
-
-export const sql = Object.assign(
-  async (strings: TemplateStringsArray, ...values: any[]) => {
-    const result = await neonSql(strings, ...values);
-    const response = result as any;
-    response.rows = result;
-    response.rowCount = result.length;
-    return response;
-  },
-  {
-    query: async (queryText: string, params?: any[]) => {
-      const result = await pool.query(queryText, params);
-      return {
-        rows: result.rows,
-        rowCount: result.rowCount || result.rows.length,
-      };
-    }
+  if (!databaseUrl) {
+    throw new Error("Missing database URL environment variable (DATABASE_URL)");
   }
-);
+
+  const isUnixSocket = /[?&]host=\/cloudsql\//.test(databaseUrl);
+
+  console.log(
+    "[DB] Connecting to:",
+    isUnixSocket
+      ? databaseUrl.match(/host=(\/cloudsql\/[^&]+)/)?.[1] || "cloudsql-socket"
+      : databaseUrl.split("@")[1]?.split("/")[0] || "unknown host",
+  );
+
+  cachedPool = new Pool({
+    connectionString: databaseUrl,
+    ssl: isUnixSocket ? false : { rejectUnauthorized: false },
+    max: 10,
+    idleTimeoutMillis: 30_000,
+  });
+
+  return cachedPool;
+};
+
+const runTemplate = async (
+  strings: TemplateStringsArray,
+  ...values: unknown[]
+): Promise<QueryResult> => {
+  let text = strings[0];
+  for (let i = 0; i < values.length; i++) {
+    text += `$${i + 1}` + strings[i + 1];
+  }
+  return getPool().query(text, values as unknown[]);
+};
+
+export const sql = Object.assign(runTemplate, {
+  query: async (queryText: string, params?: unknown[]) => {
+    const result = await getPool().query(queryText, params as unknown[]);
+    return {
+      rows: result.rows,
+      rowCount: result.rowCount ?? result.rows.length,
+    };
+  },
+});

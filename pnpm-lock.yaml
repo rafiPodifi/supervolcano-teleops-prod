@@ -16,9 +16,6 @@ importers:
       "@heroicons/react":
         specifier: ^2.2.0
         version: 2.2.0(react@18.3.1)
-      "@neondatabase/serverless":
-        specifier: ^1.0.2
-        version: 1.0.2
       "@radix-ui/react-alert-dialog":
         specifier: ^1.1.15
         version: 1.1.15(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -7963,6 +7960,7 @@ snapshots:
     dependencies:
       "@types/node": 22.19.1
       "@types/pg": 8.15.6
+    optional: true
 
   "@next/env@14.2.11": {}
 
