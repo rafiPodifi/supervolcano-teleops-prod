@@ -261,7 +261,7 @@ service cloud.firestore {
       // OEM partners can read their own organization's data
       allow read: if isAuthenticated() && (
         isAdmin() ||
-        (getUserRole() in ['partner_manager', 'oem_teleoperator'] && 
+        (request.auth.token.role in ['partner_manager', 'oem_teleoperator'] &&
          resource.data.organizationId == getOrganizationId())
       );
       

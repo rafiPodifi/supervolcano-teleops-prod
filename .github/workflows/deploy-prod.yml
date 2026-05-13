@@ -30,7 +30,7 @@ jobs:
       - name: Authenticate to GCP (Workload Identity Federation)
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER_PROD }}
           service_account: ${{ secrets.WIF_SA_PROD }}
 
       - name: Set up gcloud
@@ -39,10 +39,20 @@ jobs:
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker $REGION-docker.pkg.dev --quiet
 
-      - name: Build + push image
+      - name: Build + push image (with NEXT_PUBLIC_* inlined for prod)
         run: |
           IMAGE="$REGION-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/$REPOSITORY/$IMAGE_NAME:${{ github.ref_name }}"
-          docker build -t "$IMAGE" .
+          docker build \
+            --build-arg NEXT_PUBLIC_FIREBASE_API_KEY='${{ secrets.PROD_FIREBASE_API_KEY }}' \
+            --build-arg NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN='${{ secrets.PROD_FIREBASE_AUTH_DOMAIN }}' \
+            --build-arg NEXT_PUBLIC_FIREBASE_PROJECT_ID='${{ secrets.GCP_PROJECT_ID }}' \
+            --build-arg NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET='${{ secrets.GCP_PROJECT_ID }}-sv-firebase-prod' \
+            --build-arg NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID='${{ secrets.PROD_FIREBASE_MESSAGING_SENDER_ID }}' \
+            --build-arg NEXT_PUBLIC_FIREBASE_APP_ID='${{ secrets.PROD_FIREBASE_APP_ID }}' \
+            --build-arg NEXT_PUBLIC_FIRESTORE_DATABASE_ID='prod-db' \
+            --build-arg NEXT_PUBLIC_AUTH_TENANT_ID='${{ secrets.PROD_AUTH_TENANT_ID }}' \
+            --build-arg NEXT_PUBLIC_GOOGLE_MAPS_API_KEY='${{ secrets.PROD_GOOGLE_MAPS_API_KEY }}' \
+            -t "$IMAGE" .
           docker push "$IMAGE"
           echo "IMAGE=$IMAGE" >> $GITHUB_ENV
 

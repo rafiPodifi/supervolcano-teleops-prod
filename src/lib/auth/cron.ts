@@ -28,9 +28,14 @@ export async function verifyCronOidc(
     return { sub: "legacy-cron-secret" };
   }
 
+  // Accept either the request-derived audience or an explicit
+  // CRON_AUDIENCE env (set when behind a domain mapping / load balancer).
+  const audiences = [expectedAudience];
+  if (process.env.CRON_AUDIENCE) audiences.push(process.env.CRON_AUDIENCE);
+
   const ticket = await oauthClient.verifyIdToken({
     idToken,
-    audience: expectedAudience,
+    audience: audiences,
   });
   const payload = ticket.getPayload();
   if (!payload) {

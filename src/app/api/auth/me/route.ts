@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUserClaims } from "@/lib/utils/auth";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { adminAuth } from "@/lib/firebaseAdmin";
+import { authForTenant } from "@/lib/auth/tenantAuth";
 
 export async function GET(request: NextRequest) {
   try {
@@ -17,27 +18,33 @@ export async function GET(request: NextRequest) {
 
     const token = authHeader.substring(7);
     const claims = await getUserClaims(token);
-    
+
     if (!claims) {
       return NextResponse.json({ error: "Invalid token" }, { status: 401 });
     }
 
-    // Get uid from decoded token
+    // Get uid + tenant from decoded token
     const decodedToken = await adminAuth.verifyIdToken(token);
     const uid = decodedToken.uid;
+    const tenantId = (decodedToken.firebase as { tenant?: string } | undefined)
+      ?.tenant;
 
     // Get user document for additional info
     const userDoc = await adminDb.collection("users").doc(uid).get();
     const userData = userDoc.exists ? userDoc.data() : null;
 
-    // Get Firebase Auth user for email
-    const firebaseUser = await adminAuth.getUser(uid);
+    // Identity Platform tenant users live in their tenant's user pool;
+    // the root Auth.getUser() will return user-not-found for them.
+    const firebaseUser = await authForTenant(tenantId).getUser(uid);
 
     // Get organization name if organizationId exists
     let organizationName: string | undefined;
     if (claims.organizationId) {
       try {
-        const orgDoc = await adminDb.collection("organizations").doc(claims.organizationId).get();
+        const orgDoc = await adminDb
+          .collection("organizations")
+          .doc(claims.organizationId)
+          .get();
         if (orgDoc.exists) {
           organizationName = orgDoc.data()?.name;
         }
@@ -50,7 +57,10 @@ export async function GET(request: NextRequest) {
     let displayName: string | undefined;
     if (claims.teleoperatorId) {
       try {
-        const teleopDoc = await adminDb.collection("teleoperators").doc(claims.teleoperatorId).get();
+        const teleopDoc = await adminDb
+          .collection("teleoperators")
+          .doc(claims.teleoperatorId)
+          .get();
         if (teleopDoc.exists) {
           displayName = teleopDoc.data()?.displayName;
         }
@@ -67,11 +77,17 @@ export async function GET(request: NextRequest) {
       organizationId: claims.organizationId,
       organizationName,
       teleoperatorId: claims.teleoperatorId,
-      displayName: displayName || userData?.displayName || firebaseUser.displayName || firebaseUser.email?.split("@")[0],
+      displayName:
+        displayName ||
+        userData?.displayName ||
+        firebaseUser.displayName ||
+        firebaseUser.email?.split("@")[0],
     });
   } catch (error: any) {
     console.error("[api] GET /api/auth/me - Error:", error);
-    return NextResponse.json({ error: error.message || "Internal server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message || "Internal server error" },
+      { status: 500 },
+    );
   }
 }
-

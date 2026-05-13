@@ -17,37 +17,40 @@ import { getAuth } from "firebase/auth";
 import { getFirestore, setLogLevel } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
-const fallbackConfig = {
-  apiKey: "AIzaSyBJd8_A8tH6e2S5WhgwHqoeXIB58WQWDvw",
-  authDomain: "super-volcano-oem-portal.firebaseapp.com",
-  projectId: "super-volcano-oem-portal",
-  storageBucket: "super-volcano-oem-portal.firebasestorage.app",
-  messagingSenderId: "243745387315",
-  appId: "1:243745387315:web:88448a0ee710a8fcc2c446",
-} as const;
+// No hardcoded production fallback. Missing NEXT_PUBLIC_* at request time
+// must fail loud — silently pointing the browser at the wrong project
+// (e.g. the old super-volcano-oem-portal credentials) leaks data and
+// confuses users. CI must pass the values as docker --build-arg so they
+// are inlined into the bundle.
+//
+// During `next build` (Vercel/Cloud Run image build) NEXT_PUBLIC_* may
+// still be unset when the build is just performing typecheck/prerender;
+// we substitute obviously-invalid placeholders so initializeApp() does
+// not throw at module load. A real request that hits Firebase will
+// surface the configured invalid key as `auth/invalid-api-key` — loud.
+const isBuildPhase =
+  process.env.NEXT_PHASE === "phase-production-build" ||
+  process.env.NEXT_PHASE === "phase-development-build";
+
+const buildPlaceholder = isBuildPhase ? "build-placeholder" : undefined;
 
 const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY ?? fallbackConfig.apiKey,
-  authDomain:
-    process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN ?? fallbackConfig.authDomain,
-  projectId:
-    process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? fallbackConfig.projectId,
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY ?? buildPlaceholder,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN ?? buildPlaceholder,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? buildPlaceholder,
   storageBucket:
-    process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET ??
-    fallbackConfig.storageBucket,
+    process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET ?? buildPlaceholder,
   messagingSenderId:
-    process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ??
-    fallbackConfig.messagingSenderId,
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID ?? fallbackConfig.appId,
+    process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ?? buildPlaceholder,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID ?? buildPlaceholder,
 };
 
 function getFirebaseApp(): FirebaseApp {
   if (Object.values(firebaseConfig).some((value) => !value)) {
     throw new Error(
-      "Missing Firebase client config. Ensure NEXT_PUBLIC_FIREBASE_* env vars are set.",
+      "Missing Firebase client config. Ensure NEXT_PUBLIC_FIREBASE_* env vars are set at build time (docker --build-arg).",
     );
   }
-
   return getApps().length ? getApp() : initializeApp(firebaseConfig);
 }
 
