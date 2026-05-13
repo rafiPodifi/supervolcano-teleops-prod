@@ -1,0 +1,81 @@
+name: Deploy Prod
+
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+env:
+  REGION: us-west1
+  SERVICE: supervolcano-web-prod
+  REPOSITORY: supervolcano
+  IMAGE_NAME: web
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    name: Build + Deploy to Cloud Run (prod)
+    runs-on: ubuntu-latest
+    # GitHub environment "production" requires manual reviewer approval.
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER_PROD }}
+          service_account: ${{ secrets.WIF_SA_PROD }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker $REGION-docker.pkg.dev --quiet
+
+      - name: Build + push image (with NEXT_PUBLIC_* inlined for prod)
+        run: |
+          IMAGE="$REGION-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/$REPOSITORY/$IMAGE_NAME:${{ github.ref_name }}"
+          docker build \
+            --build-arg NEXT_PUBLIC_FIREBASE_API_KEY='${{ secrets.PROD_FIREBASE_API_KEY }}' \
+            --build-arg NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN='${{ secrets.PROD_FIREBASE_AUTH_DOMAIN }}' \
+            --build-arg NEXT_PUBLIC_FIREBASE_PROJECT_ID='${{ secrets.GCP_PROJECT_ID }}' \
+            --build-arg NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET='${{ secrets.GCP_PROJECT_ID }}-sv-firebase-prod' \
+            --build-arg NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID='${{ secrets.PROD_FIREBASE_MESSAGING_SENDER_ID }}' \
+            --build-arg NEXT_PUBLIC_FIREBASE_APP_ID='${{ secrets.PROD_FIREBASE_APP_ID }}' \
+            --build-arg NEXT_PUBLIC_FIRESTORE_DATABASE_ID='prod-db' \
+            --build-arg NEXT_PUBLIC_AUTH_TENANT_ID='${{ secrets.PROD_AUTH_TENANT_ID }}' \
+            --build-arg NEXT_PUBLIC_GOOGLE_MAPS_API_KEY='${{ secrets.PROD_GOOGLE_MAPS_API_KEY }}' \
+            -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy "$SERVICE" \
+            --image="$IMAGE" \
+            --region="$REGION" \
+            --service-account="cr-prod@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
+            --vpc-connector=vpc-conn-usw1 \
+            --vpc-egress=private-ranges-only \
+            --add-cloudsql-instances="${{ secrets.GCP_PROJECT_ID }}:$REGION:sv-sql-prod" \
+            --min-instances=1 --max-instances=20 \
+            --memory=1Gi --cpu=1 \
+            --port=8080 \
+            --allow-unauthenticated \
+            --quiet
+
+      - name: Run Drizzle migrations
+        run: |
+          echo "TODO - run pnpm db:migrate against sv-sql-prod"
+
+      - name: Deploy Firestore rules (prod-db)
+        run: |
+          npx -y firebase-tools deploy --only firestore:rules \
+            --project="${{ secrets.GCP_PROJECT_ID }}" --force --non-interactive

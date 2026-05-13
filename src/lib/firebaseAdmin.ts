@@ -18,7 +18,12 @@
  *            private_key → FIREBASE_ADMIN_PRIVATE_KEY (keep \n characters!)
  */
 
-import { App, cert, initializeApp } from "firebase-admin/app";
+import {
+  App,
+  applicationDefault,
+  cert,
+  initializeApp,
+} from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
@@ -72,38 +77,50 @@ export function getAdminApp(): App {
     }
   }
 
-  // Verify environment variables exist
-  const requiredEnvVars = [
-    "FIREBASE_ADMIN_PROJECT_ID",
-    "FIREBASE_ADMIN_CLIENT_EMAIL",
-    "FIREBASE_ADMIN_PRIVATE_KEY",
-  ];
+  // On GCP (Cloud Run, Cloud Functions, etc.) use Application Default
+  // Credentials — no service account JSON needed. Locally fall back to
+  // FIREBASE_ADMIN_* service account env vars.
+  const useADC =
+    !process.env.FIREBASE_ADMIN_PRIVATE_KEY &&
+    !process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
 
-  const missing = requiredEnvVars.filter((key) => !process.env[key]);
-  if (missing.length > 0) {
+  const projectId =
+    process.env.FIREBASE_ADMIN_PROJECT_ID ||
+    process.env.GOOGLE_CLOUD_PROJECT ||
+    process.env.GCLOUD_PROJECT;
+
+  if (!projectId) {
     throw new Error(
-      `Missing required environment variables: ${missing.join(", ")}`,
+      "Missing project ID: set FIREBASE_ADMIN_PROJECT_ID or GOOGLE_CLOUD_PROJECT",
     );
   }
 
-  const projectId = process.env.FIREBASE_ADMIN_PROJECT_ID!;
-  const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL!;
-  const privateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY!.replaceAll(
-    "\\n",
-    "\n",
+  const storageBucket =
+    process.env.FIREBASE_STORAGE_BUCKET || `${projectId}.firebasestorage.app`;
+
+  console.log(
+    "[Firebase Admin] Initializing with project:",
+    projectId,
+    useADC ? "(ADC)" : "(service account)",
   );
 
-  console.log("[Firebase Admin] Initializing with project:", projectId);
-
-  // Initialize app
-  const app = initializeApp({
-    credential: cert({
-      projectId,
-      clientEmail,
-      privateKey,
-    }),
-    storageBucket: `${projectId}.firebasestorage.app`,
-  });
+  const app = useADC
+    ? initializeApp({
+        credential: applicationDefault(),
+        projectId,
+        storageBucket,
+      })
+    : initializeApp({
+        credential: cert({
+          projectId,
+          clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL!,
+          privateKey: process.env.FIREBASE_ADMIN_PRIVATE_KEY!.replaceAll(
+            "\\n",
+            "\n",
+          ),
+        }),
+        storageBucket,
+      });
 
   global.firebaseAdminApp = app;
   console.log("[Firebase Admin] Initialized successfully");

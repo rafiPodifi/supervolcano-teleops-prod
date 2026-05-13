@@ -3,30 +3,32 @@
  * Syncs videos/training data from Firebase to PostgreSQL every 5 minutes
  */
 
-import { NextRequest, NextResponse } from 'next/server';
-import { firebaseToSQLSync } from '@/services/firebase-to-sql-sync.service';
+import { NextRequest, NextResponse } from "next/server";
+import { firebaseToSQLSync } from "@/services/firebase-to-sql-sync.service";
+import { verifyCronOidc } from "@/lib/auth/cron";
 
 export const maxDuration = 300; // 5 minutes max execution time
 
-export async function GET(request: NextRequest) {
+async function handle(request: NextRequest) {
   try {
-    // Verify cron secret to prevent unauthorized access
-    const authHeader = request.headers.get('authorization');
-    const cronSecret = process.env.CRON_SECRET;
-    const expectedAuth = cronSecret ? `Bearer ${cronSecret}` : null;
-    
-    if (expectedAuth && authHeader !== expectedAuth) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+    const authHeader = request.headers.get("authorization");
+    const url = new URL(request.url);
+    const audience = `${url.protocol}//${url.host}`;
+    try {
+      const verified = await verifyCronOidc(authHeader, audience);
+      if (!verified) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+    } catch (err) {
+      console.error("[Cron] OIDC verification failed:", err);
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    console.log('[Cron] Starting Firebase → PostgreSQL sync...');
+    console.log("[Cron] Starting Firebase → PostgreSQL sync...");
     const startTime = Date.now();
 
     const stats = await firebaseToSQLSync.syncRobotIntelligence();
-    
+
     const duration = Date.now() - startTime;
     console.log(`[Cron] Sync completed in ${duration}ms`);
 
@@ -34,19 +36,22 @@ export async function GET(request: NextRequest) {
       success: true,
       stats,
       duration,
-      direction: 'firebase_to_postgresql',
+      direction: "firebase_to_postgresql",
     });
   } catch (error: any) {
-    console.error('[Cron] Sync failed:', error);
+    console.error("[Cron] Sync failed:", error);
     return NextResponse.json(
       {
         success: false,
         error: error.message,
       },
-      { status: 500 }
+      { status: 500 },
     );
   } finally {
     await firebaseToSQLSync.disconnect();
   }
 }
 
+// Cloud Scheduler defaults to POST; keep GET working for manual smoke tests.
+export const GET = handle;
+export const POST = handle;

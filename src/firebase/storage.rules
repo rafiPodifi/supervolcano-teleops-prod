@@ -36,12 +36,13 @@ service firebase.storage {
       allow write: if isAdmin();
     }
 
-    // Media uploads for robot intelligence
-    // TEMPORARY: Allow unauthenticated uploads during development
-    // TODO: Change to `if request.auth != null` for production
+    // Media uploads for robot intelligence.
+    // Robots authenticate via X-Robot-API-Key at the API layer and upload
+    // via server-side signed URLs; direct anonymous writes here are
+    // forbidden. Field workers and admins can write authenticated.
     match /media/{allPaths=**} {
-      allow read: if true; // Public read for robot access
-      allow write: if true; // TEMPORARY: Allow unauthenticated uploads
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
     }
 
     // Videos path: videos/{locationId}/{userId}/{filename}

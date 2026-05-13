@@ -1,12 +1,15 @@
 /**
  * Video Face Blur Service
- * 
+ *
  * Uses Google Cloud Video Intelligence API for face detection,
  * then applies blur using FFmpeg via Cloud Run processor.
  */
 
-import { VideoIntelligenceServiceClient, protos } from '@google-cloud/video-intelligence';
-import { Storage } from '@google-cloud/storage';
+import {
+  VideoIntelligenceServiceClient,
+  protos,
+} from "@google-cloud/video-intelligence";
+import { Storage } from "@google-cloud/storage";
 
 interface BlurResult {
   success: boolean;
@@ -34,40 +37,62 @@ class VideoBlurService {
   private client: VideoIntelligenceServiceClient | null = null;
   private storage: Storage | null = null;
   private initialized = false;
-  private bucketName: string;
+  private _bucketName: string | null = null;
 
-  constructor() {
-    this.bucketName = process.env.FIREBASE_STORAGE_BUCKET || 'super-volcano-oem-portal.firebasestorage.app';
+  constructor() {}
+
+  private get bucketName(): string {
+    if (this._bucketName) return this._bucketName;
+    const bucket = process.env.FIREBASE_STORAGE_BUCKET;
+    if (!bucket) {
+      throw new Error("FIREBASE_STORAGE_BUCKET is not set");
+    }
+    this._bucketName = bucket;
+    return bucket;
   }
 
   private async initialize(): Promise<void> {
     if (this.initialized) return;
 
     try {
-      const projectId = process.env.FIREBASE_ADMIN_PROJECT_ID;
-      const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
-      const privateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, '\n');
-
-      if (!projectId || !clientEmail || !privateKey) {
-        throw new Error('Missing Firebase Admin credentials');
+      const projectId =
+        process.env.FIREBASE_ADMIN_PROJECT_ID ||
+        process.env.GOOGLE_CLOUD_PROJECT;
+      if (!projectId) {
+        throw new Error(
+          "Missing project ID (FIREBASE_ADMIN_PROJECT_ID or GOOGLE_CLOUD_PROJECT)",
+        );
       }
 
-      const credentials = { client_email: clientEmail, private_key: privateKey };
+      const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
+      const privateKeyRaw = process.env.FIREBASE_ADMIN_PRIVATE_KEY;
 
-      this.client = new VideoIntelligenceServiceClient({
-        credentials,
-        projectId,
-      });
+      // On Cloud Run, ADC is auto-injected — pass no credentials. Locally,
+      // use the service-account env vars.
+      const useADC = !clientEmail || !privateKeyRaw;
 
-      this.storage = new Storage({
-        credentials,
-        projectId,
-      });
+      if (useADC) {
+        this.client = new VideoIntelligenceServiceClient({ projectId });
+        this.storage = new Storage({ projectId });
+      } else {
+        const credentials = {
+          client_email: clientEmail!,
+          private_key: privateKeyRaw!.replace(/\\n/g, "\n"),
+        };
+        this.client = new VideoIntelligenceServiceClient({
+          credentials,
+          projectId,
+        });
+        this.storage = new Storage({ credentials, projectId });
+      }
 
       this.initialized = true;
-      console.log('[VideoBlur] Service initialized');
+      console.log(
+        "[VideoBlur] Service initialized",
+        useADC ? "(ADC)" : "(service account)",
+      );
     } catch (error: any) {
-      console.error('[VideoBlur] Failed to initialize:', error.message);
+      console.error("[VideoBlur] Failed to initialize:", error.message);
       throw error;
     }
   }
@@ -78,7 +103,7 @@ class VideoBlurService {
   firebaseUrlToGcsUri(firebaseUrl: string): string | null {
     try {
       const googleapisMatch = firebaseUrl.match(
-        /https:\/\/firebasestorage\.googleapis\.com\/v0\/b\/([^/]+)\/o\/([^?]+)/
+        /https:\/\/firebasestorage\.googleapis\.com\/v0\/b\/([^/]+)\/o\/([^?]+)/,
       );
       if (googleapisMatch) {
         const bucket = googleapisMatch[1];
@@ -87,16 +112,16 @@ class VideoBlurService {
       }
 
       const storageMatch = firebaseUrl.match(
-        /https:\/\/storage\.googleapis\.com\/([^/]+)\/(.+)/
+        /https:\/\/storage\.googleapis\.com\/([^/]+)\/(.+)/,
       );
       if (storageMatch) {
         const bucket = storageMatch[1];
-        const path = storageMatch[2].split('?')[0];
+        const path = storageMatch[2].split("?")[0];
         return `gs://${bucket}/${path}`;
       }
 
       const newFormatMatch = firebaseUrl.match(
-        /https:\/\/([^.]+\.firebasestorage\.app)\/o\/([^?]+)/
+        /https:\/\/([^.]+\.firebasestorage\.app)\/o\/([^?]+)/,
       );
       if (newFormatMatch) {
         const bucket = newFormatMatch[1];
@@ -106,7 +131,7 @@ class VideoBlurService {
 
       return null;
     } catch (error) {
-      console.error('[VideoBlur] Failed to parse Firebase URL:', error);
+      console.error("[VideoBlur] Failed to parse Firebase URL:", error);
       return null;
     }
   }
@@ -115,22 +140,24 @@ class VideoBlurService {
    * Generate blurred video output path
    */
   generateBlurredPath(originalPath: string): string {
-    const parts = originalPath.split('/');
-    const filename = parts.pop() || 'video.mp4';
-    const nameWithoutExt = filename.replace(/\.[^/.]+$/, '');
-    const ext = filename.split('.').pop() || 'mp4';
-    
-    return [...parts, 'blurred', `${nameWithoutExt}_blurred.${ext}`].join('/');
+    const parts = originalPath.split("/");
+    const filename = parts.pop() || "video.mp4";
+    const nameWithoutExt = filename.replace(/\.[^/.]+$/, "");
+    const ext = filename.split(".").pop() || "mp4";
+
+    return [...parts, "blurred", `${nameWithoutExt}_blurred.${ext}`].join("/");
   }
 
   /**
    * Detect faces in video using Video Intelligence API
    */
-  async detectFaces(gcsUri: string): Promise<{ faces: FaceTrack[]; error?: string }> {
+  async detectFaces(
+    gcsUri: string,
+  ): Promise<{ faces: FaceTrack[]; error?: string }> {
     await this.initialize();
 
     if (!this.client) {
-      return { faces: [], error: 'Client not initialized' };
+      return { faces: [], error: "Client not initialized" };
     }
 
     try {
@@ -138,7 +165,7 @@ class VideoBlurService {
 
       const [operation] = await this.client.annotateVideo({
         inputUri: gcsUri,
-        features: ['FACE_DETECTION' as any],
+        features: ["FACE_DETECTION" as any],
         videoContext: {
           faceDetectionConfig: {
             includeBoundingBoxes: true,
@@ -147,7 +174,7 @@ class VideoBlurService {
         },
       });
 
-      console.log('[VideoBlur] Waiting for face detection...');
+      console.log("[VideoBlur] Waiting for face detection...");
       const [response] = await operation.promise();
 
       const results = response.annotationResults?.[0];
@@ -155,7 +182,7 @@ class VideoBlurService {
 
       const faces: FaceTrack[] = faceAnnotations.map((face, index) => ({
         trackId: index,
-        frames: (face.tracks?.[0]?.timestampedObjects || []).map(obj => ({
+        frames: (face.tracks?.[0]?.timestampedObjects || []).map((obj) => ({
           timeOffset: this.parseTime(obj.timeOffset),
           boundingBox: {
             left: obj.normalizedBoundingBox?.left || 0,
@@ -169,12 +196,14 @@ class VideoBlurService {
       console.log(`[VideoBlur] Detected ${faces.length} faces`);
       return { faces };
     } catch (error: any) {
-      console.error('[VideoBlur] Face detection failed:', error.message);
+      console.error("[VideoBlur] Face detection failed:", error.message);
       return { faces: [], error: error.message };
     }
   }
 
-  private parseTime(duration: protos.google.protobuf.IDuration | null | undefined): number {
+  private parseTime(
+    duration: protos.google.protobuf.IDuration | null | undefined,
+  ): number {
     if (!duration) return 0;
     return Number(duration.seconds || 0) + Number(duration.nanos || 0) / 1e9;
   }
@@ -182,11 +211,14 @@ class VideoBlurService {
   /**
    * Get signed download URL for a file
    */
-  async getSignedUrl(filePath: string, expiresInDays: number = 7): Promise<string> {
+  async getSignedUrl(
+    filePath: string,
+    expiresInDays: number = 7,
+  ): Promise<string> {
     await this.initialize();
     const bucket = this.storage!.bucket(this.bucketName);
     const [url] = await bucket.file(filePath).getSignedUrl({
-      action: 'read',
+      action: "read",
       expires: Date.now() + expiresInDays * 24 * 60 * 60 * 1000,
     });
     return url;
@@ -195,10 +227,7 @@ class VideoBlurService {
   /**
    * Main blur method - detects faces and applies blur
    */
-  async blurVideo(
-    videoUrl: string,
-    storagePath: string
-  ): Promise<BlurResult> {
+  async blurVideo(videoUrl: string, storagePath: string): Promise<BlurResult> {
     const startTime = Date.now();
 
     try {
@@ -206,7 +235,7 @@ class VideoBlurService {
 
       const gcsUri = this.firebaseUrlToGcsUri(videoUrl);
       if (!gcsUri) {
-        return { success: false, error: 'Could not convert URL to GCS URI' };
+        return { success: false, error: "Could not convert URL to GCS URI" };
       }
 
       console.log(`[VideoBlur] Processing: ${gcsUri}`);
@@ -223,7 +252,7 @@ class VideoBlurService {
 
       // Step 2: If no faces, copy original as "blurred"
       if (facesDetected === 0) {
-        console.log('[VideoBlur] No faces detected, copying original');
+        console.log("[VideoBlur] No faces detected, copying original");
         await bucket.file(storagePath).copy(bucket.file(blurredPath));
         const blurredUrl = await this.getSignedUrl(blurredPath);
 
@@ -238,10 +267,12 @@ class VideoBlurService {
 
       // Step 3: Call Cloud Run FFmpeg processor (or dev fallback)
       const processorUrl = process.env.VIDEO_BLUR_PROCESSOR_URL;
-      
+
       if (!processorUrl) {
         // Development fallback: copy original without actual blur
-        console.warn('[VideoBlur] No processor URL configured, copying original (dev mode)');
+        console.warn(
+          "[VideoBlur] No processor URL configured, copying original (dev mode)",
+        );
         await bucket.file(storagePath).copy(bucket.file(blurredPath));
         const blurredUrl = await this.getSignedUrl(blurredPath);
 
@@ -256,35 +287,44 @@ class VideoBlurService {
 
       // Call the FFmpeg processor
       const response = await fetch(`${processorUrl}/blur`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.VIDEO_BLUR_PROCESSOR_KEY || ''}`,
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.VIDEO_BLUR_PROCESSOR_KEY || ""}`,
         },
         body: JSON.stringify({
           sourcePath: storagePath,
           outputPath: blurredPath,
           bucket: this.bucketName,
           faces: faces.map((f, idx) => {
-            console.log(`[VideoBlur] Face ${idx} has ${f.frames.length} frames`);
+            console.log(
+              `[VideoBlur] Face ${idx} has ${f.frames.length} frames`,
+            );
             if (f.frames.length > 0) {
-              console.log(`[VideoBlur] First frame box:`, JSON.stringify(f.frames[0].boundingBox));
+              console.log(
+                `[VideoBlur] First frame box:`,
+                JSON.stringify(f.frames[0].boundingBox),
+              );
             }
-            
+
             // Get time range this face appears
             const startTime = Math.max(0, (f.frames[0]?.timeOffset || 0) - 0.5); // Start 0.5s early
-            const endTime = (f.frames[f.frames.length - 1]?.timeOffset || 9999) + 1.0; // Add 1s buffer
-            
+            const endTime =
+              (f.frames[f.frames.length - 1]?.timeOffset || 9999) + 1.0; // Add 1s buffer
+
             // Get average bounding box across all frames
-            const avgBox = f.frames.reduce((acc, frame) => ({
-              left: acc.left + frame.boundingBox.left,
-              top: acc.top + frame.boundingBox.top,
-              right: acc.right + frame.boundingBox.right,
-              bottom: acc.bottom + frame.boundingBox.bottom,
-            }), { left: 0, top: 0, right: 0, bottom: 0 });
-            
+            const avgBox = f.frames.reduce(
+              (acc, frame) => ({
+                left: acc.left + frame.boundingBox.left,
+                top: acc.top + frame.boundingBox.top,
+                right: acc.right + frame.boundingBox.right,
+                bottom: acc.bottom + frame.boundingBox.bottom,
+              }),
+              { left: 0, top: 0, right: 0, bottom: 0 },
+            );
+
             const numFrames = f.frames.length || 1;
-            
+
             const result = {
               x: avgBox.left / numFrames,
               y: avgBox.top / numFrames,
@@ -293,8 +333,11 @@ class VideoBlurService {
               startTime,
               endTime,
             };
-            
-            console.log(`[VideoBlur] Face ${idx} coords:`, JSON.stringify(result));
+
+            console.log(
+              `[VideoBlur] Face ${idx} coords:`,
+              JSON.stringify(result),
+            );
             return result;
           }),
         }),
@@ -315,10 +358,10 @@ class VideoBlurService {
         processingTimeMs: Date.now() - startTime,
       };
     } catch (error: any) {
-      console.error('[VideoBlur] Error:', error);
+      console.error("[VideoBlur] Error:", error);
       return {
         success: false,
-        error: error.message || 'Unknown error',
+        error: error.message || "Unknown error",
         processingTimeMs: Date.now() - startTime,
       };
     }
@@ -335,4 +378,3 @@ class VideoBlurService {
 }
 
 export const videoBlurService = new VideoBlurService();
-

@@ -1,0 +1,84 @@
+name: Deploy Staging
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+env:
+  REGION: us-west1
+  SERVICE: supervolcano-web-staging
+  REPOSITORY: supervolcano
+  IMAGE_NAME: web
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    name: Build + Deploy to Cloud Run (staging)
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP (Workload Identity Federation)
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER_STAGING }}
+          service_account: ${{ secrets.WIF_SA_STAGING }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker $REGION-docker.pkg.dev --quiet
+
+      - name: Build + push image (with NEXT_PUBLIC_* inlined for staging)
+        run: |
+          IMAGE="$REGION-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/$REPOSITORY/$IMAGE_NAME:${{ github.sha }}"
+          docker build \
+            --build-arg NEXT_PUBLIC_FIREBASE_API_KEY='${{ secrets.STAGING_FIREBASE_API_KEY }}' \
+            --build-arg NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN='${{ secrets.STAGING_FIREBASE_AUTH_DOMAIN }}' \
+            --build-arg NEXT_PUBLIC_FIREBASE_PROJECT_ID='${{ secrets.GCP_PROJECT_ID }}' \
+            --build-arg NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET='${{ secrets.GCP_PROJECT_ID }}-sv-firebase-staging' \
+            --build-arg NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID='${{ secrets.STAGING_FIREBASE_MESSAGING_SENDER_ID }}' \
+            --build-arg NEXT_PUBLIC_FIREBASE_APP_ID='${{ secrets.STAGING_FIREBASE_APP_ID }}' \
+            --build-arg NEXT_PUBLIC_FIRESTORE_DATABASE_ID='staging-db' \
+            --build-arg NEXT_PUBLIC_AUTH_TENANT_ID='${{ secrets.STAGING_AUTH_TENANT_ID }}' \
+            --build-arg NEXT_PUBLIC_GOOGLE_MAPS_API_KEY='${{ secrets.STAGING_GOOGLE_MAPS_API_KEY }}' \
+            -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy "$SERVICE" \
+            --image="$IMAGE" \
+            --region="$REGION" \
+            --service-account="cr-staging@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
+            --vpc-connector=vpc-conn-usw1 \
+            --vpc-egress=private-ranges-only \
+            --add-cloudsql-instances="${{ secrets.GCP_PROJECT_ID }}:$REGION:sv-sql-staging" \
+            --min-instances=0 --max-instances=5 \
+            --memory=512Mi --cpu=1 \
+            --port=8080 \
+            --no-allow-unauthenticated \
+            --quiet
+
+      - name: Run Drizzle migrations
+        run: |
+          gcloud sql instances describe sv-sql-staging --format="value(connectionName)"
+          # See scripts/migrate-cloud-sql.ts - runs Drizzle against staging DB
+          # via Cloud SQL Auth Proxy unix socket, fetched via the deploy SA.
+          echo "TODO - run pnpm db:migrate when migrations exist"
+
+      - name: Deploy Firestore rules (staging-db)
+        run: |
+          npx -y firebase-tools deploy --only firestore:rules \
+            --project="${{ secrets.GCP_PROJECT_ID }}" --force --non-interactive
