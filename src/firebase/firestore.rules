@@ -57,17 +57,13 @@ service cloud.firestore {
 
     // Locations collection
     match /locations/{locationId} {
-      // Helper: Check if user's org has access to location
+      // Helper: Check if user's org has access to location.
+      // Rules functions only support a single return expression — no if/early-returns.
       function hasLocationAccess() {
-        let userOrgId = getOrganizationId();
-        if (!userOrgId) return false;
-        
-        // Check assignedOrganizations array (new multi-org model)
-        let assignedOrgs = resource.data.assignedOrganizations || [];
-        if (assignedOrgs.hasAny([userOrgId])) return true;
-        
-        // Fallback to legacy organizationId field
-        return resource.data.organizationId == userOrgId;
+        return getOrganizationId() != null && (
+          (resource.data.get('assignedOrganizations', []).hasAny([getOrganizationId()])) ||
+          (resource.data.get('organizationId', '') == getOrganizationId())
+        );
       }
       
       // Admins can read all locations
