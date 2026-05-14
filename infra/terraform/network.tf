@@ -36,8 +36,8 @@ resource "google_vpc_access_connector" "primary" {
   name    = "vpc-conn-usw1"
   region  = var.region
   network = data.google_compute_network.default.name
-  # /26 gives 62 usable addresses (10 connector instances + headroom).
-  ip_cidr_range = "10.8.0.0/26"
+  # Serverless VPC connector requires exactly /28.
+  ip_cidr_range = "10.8.0.0/28"
   min_instances = 2
   max_instances = 10
   machine_type  = "e2-micro"
