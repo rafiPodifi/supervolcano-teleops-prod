@@ -55,6 +55,9 @@ locals {
     "roles/cloudsql.client",
     "roles/firebaserules.admin",
     "roles/datastore.indexAdmin",
+    # firebase-tools deploy needs serviceusage.services.get to verify APIs
+    # are enabled before pushing rules.
+    "roles/serviceusage.serviceUsageConsumer",
   ]
 
   deploy_role_bindings = {

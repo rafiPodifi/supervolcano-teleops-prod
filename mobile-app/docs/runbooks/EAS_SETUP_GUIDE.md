@@ -123,7 +123,7 @@ If you need to set environment variables for builds:
 ```bash
 # Set secrets (won't be in code)
 pnpm dlx eas-cli secret:create --scope project --name API_URL --value https://your-api.com
-pnpm dlx eas-cli secret:create --scope project --name GOOGLE_MAPS_KEY --value AIzaSyC3BaCgT_SgHWb7X6myyjWu-za6BaQ7iTM
+pnpm dlx eas-cli secret:create --scope project --name GOOGLE_MAPS_KEY --value <YOUR_MAPS_KEY>
 ```
 
 Access in your app:
