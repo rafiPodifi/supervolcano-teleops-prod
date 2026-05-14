@@ -16,6 +16,9 @@ resource "google_sql_database_instance" "main" {
   deletion_protection = local.env_config[each.key].sql_deletion_protect
 
   settings {
+    # ENTERPRISE allows db-g1-small + db-custom-N-M tiers. Project default
+    # ENTERPRISE_PLUS forces premium db-perf-optimized-* tiers (~$300/mo+).
+    edition           = "ENTERPRISE"
     tier              = local.env_config[each.key].sql_tier
     availability_type = local.env_config[each.key].sql_availability
     disk_autoresize   = true
