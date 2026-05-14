@@ -30,12 +30,8 @@ jobs:
         id: auth
         uses: google-github-actions/auth@v2
         with:
-          # Hardcoded to rule out secret-value corruption while we
-          # debug an audience-format error. Move back to secrets once
-          # green.
-          workload_identity_provider: "projects/1052457016242/locations/global/workloadIdentityPools/github-pool/providers/github-staging"
-          service_account: "gha-deploy-staging@gen-lang-client-0659584673.iam.gserviceaccount.com"
-          audience: "//iam.googleapis.com/projects/1052457016242/locations/global/workloadIdentityPools/github-pool/providers/github-staging"
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER_STAGING }}
+          service_account: ${{ secrets.WIF_SA_STAGING }}
 
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v2
