@@ -62,7 +62,7 @@ jobs:
             --image="$IMAGE" \
             --region="$REGION" \
             --service-account="cr-prod@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
-            --vpc-connector=vpc-conn-usw1 \
+            --vpc-connector=projects/${{ secrets.GCP_PROJECT_ID }}/locations/$REGION/connectors/vpc-conn-usw1 \
             --vpc-egress=private-ranges-only \
             --add-cloudsql-instances="${{ secrets.GCP_PROJECT_ID }}:$REGION:sv-sql-prod" \
             --min-instances=1 --max-instances=20 \

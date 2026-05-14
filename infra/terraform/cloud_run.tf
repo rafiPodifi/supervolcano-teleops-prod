@@ -47,7 +47,8 @@ resource "google_cloud_run_v2_service" "web" {
     }
 
     vpc_access {
-      connector = google_vpc_access_connector.primary.id
+      # Explicit full path; .id sometimes returns short form which v2 API rejects.
+      connector = "projects/${var.project_id}/locations/${var.region}/connectors/${google_vpc_access_connector.primary.name}"
       egress    = "PRIVATE_RANGES_ONLY"
     }
 

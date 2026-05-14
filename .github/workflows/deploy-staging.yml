@@ -62,7 +62,7 @@ jobs:
             --image="$IMAGE" \
             --region="$REGION" \
             --service-account="cr-staging@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" \
-            --vpc-connector=vpc-conn-usw1 \
+            --vpc-connector=projects/${{ secrets.GCP_PROJECT_ID }}/locations/$REGION/connectors/vpc-conn-usw1 \
             --vpc-egress=private-ranges-only \
             --add-cloudsql-instances="${{ secrets.GCP_PROJECT_ID }}:$REGION:sv-sql-staging" \
             --min-instances=0 --max-instances=5 \
