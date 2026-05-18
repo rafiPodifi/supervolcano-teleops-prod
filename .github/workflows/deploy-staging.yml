@@ -1,7 +1,9 @@
 name: Deploy Staging
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [main]
 
 concurrency:
@@ -23,8 +25,13 @@ jobs:
     name: Build + Deploy to Cloud Run (staging)
     runs-on: ubuntu-latest
     environment: staging
+    # Only deploy when triggering CI run succeeded.
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # workflow_run defaults to default-branch HEAD; pin to the SHA that CI passed on.
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Authenticate to GCP (Workload Identity Federation)
         id: auth
@@ -41,7 +48,7 @@ jobs:
 
       - name: Build + push image (with NEXT_PUBLIC_* inlined for staging)
         run: |
-          IMAGE="$REGION-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/$REPOSITORY/$IMAGE_NAME:${{ github.sha }}"
+          IMAGE="$REGION-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/$REPOSITORY/$IMAGE_NAME:${{ github.event.workflow_run.head_sha }}"
           docker build \
             --build-arg NEXT_PUBLIC_FIREBASE_API_KEY='${{ secrets.STAGING_FIREBASE_API_KEY }}' \
             --build-arg NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN='${{ secrets.STAGING_FIREBASE_AUTH_DOMAIN }}' \
