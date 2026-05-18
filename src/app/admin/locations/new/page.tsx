@@ -33,7 +33,12 @@ export default function NewLocationPage() {
       return;
     }
 
-    if (!claims?.partnerId) {
+    // Admin/superadmin belong to SuperVolcano internal and have no partnerId
+    // claim. Other roles must have one assigned.
+    const isAdmin = claims?.role === "admin" || claims?.role === "superadmin";
+    const partnerOrgId = claims?.partnerId || (isAdmin ? "sv:internal" : null);
+
+    if (!partnerOrgId) {
       setError(
         "Your account has no partner organization assigned. Contact an admin.",
       );
@@ -56,7 +61,7 @@ export default function NewLocationPage() {
           name: name.trim(),
           address: address.trim() || undefined,
           type: "other",
-          partnerOrgId: claims.partnerId,
+          partnerOrgId,
           status: "active",
         }),
       });
