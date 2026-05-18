@@ -6,8 +6,16 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
+import { authForTenant } from "@/lib/auth/tenantAuth";
 import { requireAdmin } from "@/lib/apiAuth";
 import type { User, UserRole } from "@/domain/user/user.types";
+
+/** Pull the Identity Platform tenant off a decoded ID token, if any. */
+function tenantFromToken(
+  decodedToken: { firebase?: { tenant?: string } } | undefined,
+): string | null {
+  return decodedToken?.firebase?.tenant ?? null;
+}
 
 function calculateSyncStatus(
   authClaims: Record<string, unknown>,
@@ -41,7 +49,6 @@ function calculateSyncStatus(
     );
   }
 
-
   if (issues.length === 0) {
     return { syncStatus: "synced", syncIssues: [] };
   }
@@ -67,8 +74,16 @@ export async function GET(
 
     const { id: userId } = params;
 
+    // Scope Auth lookups to the caller's Identity Platform tenant. Users live
+    // inside a tenant's pool; the root Auth instance returns auth/user-not-found.
+    const authHeader = request.headers.get("x-firebase-token");
+    const decodedToken = authHeader
+      ? await adminAuth.verifyIdToken(authHeader)
+      : undefined;
+    const tenantAuth = authForTenant(tenantFromToken(decodedToken));
+
     // Get from Firebase Auth
-    const authUser = await adminAuth.getUser(userId);
+    const authUser = await tenantAuth.getUser(userId);
     const customClaims = authUser.customClaims || {};
 
     // Get from Firestore
@@ -162,6 +177,10 @@ export async function PATCH(
       decodedToken = await adminAuth.verifyIdToken(authHeader);
     }
 
+    // Scope Auth ops to the caller's Identity Platform tenant; the root Auth
+    // instance cannot find tenant-pool users (auth/user-not-found -> 500).
+    const tenantAuth = authForTenant(tenantFromToken(decodedToken));
+
     const { id: userId } = params;
     const body = await request.json();
 
@@ -194,18 +213,18 @@ export async function PATCH(
       if (teleoperatorId !== undefined)
         customClaims.teleoperatorId = teleoperatorId;
 
-      await adminAuth.setCustomUserClaims(userId, customClaims);
+      await tenantAuth.setCustomUserClaims(userId, customClaims);
       console.log("Updated Auth custom claims:", customClaims);
     }
 
     // Update Auth display name if provided
     if (displayName !== undefined) {
-      await adminAuth.updateUser(userId, { displayName });
+      await tenantAuth.updateUser(userId, { displayName });
     }
 
     // Update disabled status if provided
     if (disabled !== undefined) {
-      await adminAuth.updateUser(userId, { disabled });
+      await tenantAuth.updateUser(userId, { disabled });
     }
 
     // Update Firestore if requested
@@ -222,12 +241,15 @@ export async function PATCH(
         await adminDb.collection("users").doc(userId).update(updates);
       } else {
         // Create if doesn't exist
-        const authUser = await adminAuth.getUser(userId);
-        await adminDb.collection("users").doc(userId).set({
-          email: authUser.email || "",
-          ...updates,
-          created_at: new Date(),
-        });
+        const authUser = await tenantAuth.getUser(userId);
+        await adminDb
+          .collection("users")
+          .doc(userId)
+          .set({
+            email: authUser.email || "",
+            ...updates,
+            created_at: new Date(),
+          });
       }
       console.log("Updated Firestore document:", updates);
     }
@@ -290,10 +312,7 @@ export async function DELETE(
     }
 
     // Only admins can delete users
-    if (
-      decodedToken.role !== "admin" &&
-      decodedToken.role !== "superadmin"
-    ) {
+    if (decodedToken.role !== "admin" && decodedToken.role !== "superadmin") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -307,8 +326,9 @@ export async function DELETE(
       );
     }
 
-    // Delete from Firebase Auth
-    await adminAuth.deleteUser(userId);
+    // Delete from Firebase Auth, scoped to the caller's tenant pool.
+    const tenantAuth = authForTenant(tenantFromToken(decodedToken));
+    await tenantAuth.deleteUser(userId);
     console.log("[DELETE User] Deleted from Auth:", userId);
 
     // Delete from Firestore
@@ -353,4 +373,3 @@ export async function DELETE(
     );
   }
 }
-
