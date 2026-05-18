@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
+import { authForTenant } from "@/lib/auth/tenantAuth";
 import { requireAdmin } from "@/lib/apiAuth";
 import type { User, UserRole } from "@/domain/user/user.types";
 
@@ -40,7 +41,6 @@ function calculateSyncStatus(
     );
   }
 
-
   if (issues.length === 0) {
     return { syncStatus: "synced", syncIssues: [] };
   }
@@ -61,13 +61,30 @@ export async function GET(request: NextRequest) {
     // Get query params for filtering
     const searchParams = request.nextUrl.searchParams;
     const roleFilter = searchParams.get("role") as UserRole | null;
-    const syncStatusFilter = searchParams.get(
-      "syncStatus",
-    ) as User["syncStatus"] | null;
+    const syncStatusFilter = searchParams.get("syncStatus") as
+      | User["syncStatus"]
+      | null;
     const organizationIdFilter = searchParams.get("organizationId");
 
+    // Scope to caller's Identity Platform tenant. adminAuth.listUsers without
+    // a tenant returns the project-level pool, which is empty in multi-tenant
+    // setups — all users actually live inside the tenant.
+    let tenantId: string | null = null;
+    const authHeader = request.headers.get("x-firebase-token");
+    if (authHeader) {
+      try {
+        const decoded = await adminAuth.verifyIdToken(authHeader);
+        tenantId =
+          (decoded.firebase as { tenant?: string } | undefined)?.tenant ?? null;
+      } catch {
+        // requireAdmin already validated the token; fall back to default pool.
+      }
+    }
+    const tenantAuth = authForTenant(tenantId);
+    console.log("[LIST Users] Listing from tenant:", tenantId ?? "<default>");
+
     // List all users from Firebase Auth
-    const listUsersResult = await adminAuth.listUsers(1000); // Get up to 1000 users
+    const listUsersResult = await tenantAuth.listUsers(1000); // Get up to 1000 users
     const users: User[] = [];
 
     // Process users in batches to check Firestore
@@ -131,8 +148,12 @@ export async function GET(request: NextRequest) {
               email: (firestoreData.email as string) || authUser.email || "",
               displayName: firestoreData.displayName as string | undefined,
               role: firestoreData.role as UserRole | undefined,
-              organizationId: firestoreData.organizationId as string | undefined,
-              teleoperatorId: firestoreData.teleoperatorId as string | undefined,
+              organizationId: firestoreData.organizationId as
+                | string
+                | undefined,
+              teleoperatorId: firestoreData.teleoperatorId as
+                | string
+                | undefined,
               created_at: firestoreData.created_at as
                 | Date
                 | { _seconds: number }
