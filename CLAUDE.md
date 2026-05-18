@@ -36,7 +36,12 @@ field). Run `corepack enable` once so the pinned pnpm version is used
 automatically. `functions/` still uses npm — pnpm migration there is
 tracked separately.
 
-There are no automated tests. `pnpm run build` is the closest to a CI check.
+There are no unit tests. CI (`.github/workflows/ci.yml`) runs `tsc --noEmit`
+
+- `pnpm run lint` on the web app and builds `functions/`. The mobile typecheck
+  runs `continue-on-error` due to known baseline errors. `pnpm run build` needs
+  runtime env, so it is _not_ a CI step — it only runs inside the deploy
+  workflows where secrets are available.
 
 ---
 
@@ -128,4 +133,67 @@ Or via the pnpm script: `pnpm run deploy-rules`
 
 The web dashboard requires a `.env.local` at the root with Firebase client config (`NEXT_PUBLIC_FIREBASE_*`), Firebase Admin SDK credentials (`FIREBASE_ADMIN_*`), PostgreSQL connection (`SQL_HOST`, `SQL_USER`, `SQL_PASSWORD`, `SQL_DATABASE`), and `CRON_SECRET`. See `README.md` for the full variable list.
 
-The mobile app connects to the same Firebase project. Firebase config is at `mobile-app/src/config/firebase.ts`.
+The mobile app connects to the legacy Firebase project (`super-volcano-oem-portal`). Mobile dev values live in `mobile-app/.env` (gitignored) as `EXPO_PUBLIC_*` vars; production builds inject them via EAS profiles.
+
+---
+
+## Deployment & Infrastructure (GCP)
+
+The web app, API, Postgres, and auth run on **Google Cloud Platform** — a single
+client-owned project (`gen-lang-client-0659584673`) hosting two isolated
+environments. The mobile app stays on legacy Firebase. There is no Vercel/Neon
+anymore.
+
+### Environment model
+
+One GCP project, two envs namespaced by suffix:
+
+| Concern                  | staging                    | prod                                |
+| ------------------------ | -------------------------- | ----------------------------------- |
+| Cloud Run service        | `supervolcano-web-staging` | `supervolcano-web-prod`             |
+| Firestore named DB       | `staging-db`               | `prod-db`                           |
+| Cloud SQL instance       | `sv-sql-staging` (zonal)   | `sv-sql-prod` (regional HA, PITR)   |
+| Identity Platform tenant | `staging-*`                | `prod-*`                            |
+| Secret Manager prefix    | `staging-*`                | `prod-*`                            |
+| Trigger                  | push to `main`             | git tag `v*` (manual approval gate) |
+
+### Terraform
+
+All GCP infra is IaC in `infra/terraform/` — never create cloud resources by
+hand. State lives in GCS bucket `gen-lang-client-0659584673-tfstate`. The
+per-env config map in `main.tf` (`local.env_config`) is the single source for
+SQL tier, scaling, backups, etc. Cloud Run services use
+`lifecycle.ignore_changes = [template]` — TF owns the resource shell, CI owns
+the running revision. See `infra/terraform/README.md` for first-run import
+steps and secret population.
+
+### CI/CD
+
+- `.github/workflows/ci.yml` — typecheck + lint on every PR/push
+- `deploy-staging.yml` — on `main` push: WIF auth → docker build (NEXT*PUBLIC*\*
+  passed as `--build-arg`, inlined at build time) → push to Artifact Registry →
+  `gcloud run deploy` → Firestore rules deploy
+- `deploy-prod.yml` — same, on `v*` tags, behind GitHub `production` environment
+  approval
+
+CI auth is keyless via **Workload Identity Federation** — no service account
+keys. Secrets that feed builds (`STAGING_FIREBASE_API_KEY`,
+`STAGING_AUTH_TENANT_ID`, etc.) live in GitHub Actions secrets.
+
+### Runtime credential model
+
+On Cloud Run, `src/lib/firebaseAdmin.ts` uses **Application Default
+Credentials** (the Cloud Run service account) — no `FIREBASE_ADMIN_*` env vars.
+Locally it falls back to the service account in env. `src/lib/db/postgres.ts`
+connects to Cloud SQL over a Unix socket (`host=/cloudsql/<connection-name>`),
+detected by regex; the public `sql` API is unchanged from the Neon era.
+Cron routes verify Cloud Scheduler **OIDC tokens**, not the legacy
+`CRON_SECRET` bearer.
+
+### NEXT*PUBLIC*\* gotcha
+
+`NEXT_PUBLIC_*` values are inlined into the JS bundle at **build time**, not
+read at runtime. Changing them requires a rebuild — they are passed as Docker
+`--build-arg` in the deploy workflows, not as Cloud Run env vars. A wrong
+`NEXT_PUBLIC_FIREBASE_API_KEY` or `NEXT_PUBLIC_AUTH_TENANT_ID` surfaces as
+`auth/api-key-not-valid` / `auth/invalid-tenant-id` in the browser.

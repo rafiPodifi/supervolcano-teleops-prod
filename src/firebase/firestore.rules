@@ -283,5 +283,24 @@ service cloud.firestore {
       allow read: if isAdmin();
       allow create: if isAdmin();
     }
+
+    // Taxonomy + library lookups (migrated from Postgres 2026-05).
+    // Server routes use Admin SDK which bypasses rules; these rules apply
+    // only if collections are read directly from a client SDK.
+    match /libraryActionTypes/{id}    { allow read, write: if isAdmin(); }
+    match /libraryRoomTypes/{id}      { allow read, write: if isAdmin(); }
+    match /libraryTargetTypes/{id}    { allow read, write: if isAdmin(); }
+    match /taskCategories/{id}        { allow read, write: if isAdmin(); }
+    match /taskTemplates/{id}         { allow read, write: if isAdmin(); }
+
+    // Location structure ad-hoc CRUD targets (flat collections).
+    // See /api/admin/{locations,rooms,targets}/... routes.
+    match /locationRooms/{id}         { allow read, write: if isAdmin(); }
+    match /locationTargets/{id}       { allow read, write: if isAdmin(); }
+    match /targetActions/{id}         { allow read, write: if isAdmin(); }
+
+    // Robot API auth + usage. Server-only — clients never read these.
+    match /apiKeys/{id}               { allow read, write: if false; }
+    match /apiUsage/{id}              { allow read, write: if false; }
   }
 }

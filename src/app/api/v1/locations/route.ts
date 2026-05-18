@@ -8,8 +8,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { createLocation, listLocations } from "@/lib/repositories/locations";
 import { getUserClaims, requireRole } from "@/lib/utils/auth";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
-import { sql } from "@/lib/db/postgres";
-import { syncLocation } from "@/lib/services/sync/firestoreToSql";
 import type { LocationStatus, LocationType } from "@/lib/types";
 
 export async function GET(request: NextRequest) {
@@ -24,7 +22,10 @@ export async function GET(request: NextRequest) {
     }
 
     const token = authHeader.substring(7);
-    console.log("[api] GET /api/v1/locations - Token received, length:", token.length);
+    console.log(
+      "[api] GET /api/v1/locations - Token received, length:",
+      token.length,
+    );
 
     const claims = await getUserClaims(token);
     if (!claims) {
@@ -32,7 +33,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Invalid token" }, { status: 401 });
     }
 
-    console.log("[api] GET /api/v1/locations - Claims:", { role: claims.role, partnerId: claims.partnerId });
+    console.log("[api] GET /api/v1/locations - Claims:", {
+      role: claims.role,
+      partnerId: claims.partnerId,
+    });
 
     // Check permissions
     requireRole(claims, ["partner_admin", "org_manager", "oem_teleoperator"]); // partner_admin, org_manager, teleoperator, or superadmin can list
@@ -43,7 +47,8 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get("status") as LocationStatus | null;
 
     // Filter by partner if not superadmin
-    const finalPartnerId = claims.role === "superadmin" ? partnerOrgId : claims.partnerId;
+    const finalPartnerId =
+      claims.role === "superadmin" ? partnerOrgId : claims.partnerId;
 
     console.log("[api] GET /api/v1/locations - Querying Firestore:", {
       collection: "locations",
@@ -68,7 +73,10 @@ export async function GET(request: NextRequest) {
             taskCount: tasksSnapshot.size,
           };
         } catch (error) {
-          console.error(`Failed to get task count for location ${location.locationId}:`, error);
+          console.error(
+            `Failed to get task count for location ${location.locationId}:`,
+            error,
+          );
           return {
             ...location,
             taskCount: 0,
@@ -77,7 +85,9 @@ export async function GET(request: NextRequest) {
       }),
     );
 
-    console.log("[api] GET /api/v1/locations - Success:", { count: locationsWithTaskCounts.length });
+    console.log("[api] GET /api/v1/locations - Success:", {
+      count: locationsWithTaskCounts.length,
+    });
     return NextResponse.json({ locations: locationsWithTaskCounts });
   } catch (error: any) {
     console.error("[api] GET /api/v1/locations - Error:", {
@@ -85,7 +95,10 @@ export async function GET(request: NextRequest) {
       code: error.code,
       stack: error.stack,
     });
-    return NextResponse.json({ error: error.message || "Internal server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message || "Internal server error" },
+      { status: 500 },
+    );
   }
 }
 
@@ -101,7 +114,10 @@ export async function POST(request: NextRequest) {
     }
 
     const token = authHeader.substring(7);
-    console.log("[api] POST /api/v1/locations - Token received, length:", token.length);
+    console.log(
+      "[api] POST /api/v1/locations - Token received, length:",
+      token.length,
+    );
 
     const claims = await getUserClaims(token);
     if (!claims) {
@@ -109,7 +125,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid token" }, { status: 401 });
     }
 
-    console.log("[api] POST /api/v1/locations - Claims:", { role: claims.role, partnerId: claims.partnerId });
+    console.log("[api] POST /api/v1/locations - Claims:", {
+      role: claims.role,
+      partnerId: claims.partnerId,
+    });
 
     // Check permissions
     requireRole(claims, "partner_admin"); // partner_admin or superadmin can create
@@ -143,25 +162,36 @@ export async function POST(request: NextRequest) {
     // Validate required fields
     if (!name || !address || !partnerOrgId) {
       console.error("[api] POST /api/v1/locations - Missing required fields");
-      return NextResponse.json({ error: "Missing required fields: name, address, partnerOrgId" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing required fields: name, address, partnerOrgId" },
+        { status: 400 },
+      );
     }
 
     // If not superadmin, can only create for their own partner
     if (claims.role !== "superadmin" && partnerOrgId !== claims.partnerId) {
-      console.error("[api] POST /api/v1/locations - Permission denied: cannot create for other partners");
-      return NextResponse.json({ error: "Cannot create location for other partners" }, { status: 403 });
+      console.error(
+        "[api] POST /api/v1/locations - Permission denied: cannot create for other partners",
+      );
+      return NextResponse.json(
+        { error: "Cannot create location for other partners" },
+        { status: 403 },
+      );
     }
 
     // Get user UID from token
     const decodedToken = await adminAuth.verifyIdToken(token);
     const createdBy = decodedToken.uid;
 
-    console.log("[api] POST /api/v1/locations - Creating location in Firestore:", {
-      collection: "locations",
-      name,
-      partnerOrgId,
-      createdBy,
-    });
+    console.log(
+      "[api] POST /api/v1/locations - Creating location in Firestore:",
+      {
+        collection: "locations",
+        name,
+        partnerOrgId,
+        createdBy,
+      },
+    );
 
     const locationId = await createLocation(
       {
@@ -181,24 +211,6 @@ export async function POST(request: NextRequest) {
       createdBy,
     );
 
-    // Note: Teleoperators are now assigned via organizations, not directly to locations
-    // If you need to assign teleoperators, assign the location to their organization instead
-
-    // Immediately sync to SQL database for admin view
-    try {
-      console.log("[api] POST /api/v1/locations - Syncing to SQL database...");
-      const syncResult = await syncLocation(locationId);
-      if (syncResult.success) {
-        console.log("[api] POST /api/v1/locations - Successfully synced to SQL");
-      } else {
-        console.error("[api] POST /api/v1/locations - Failed to sync to SQL:", syncResult.error);
-        // Don't fail the request if sync fails - location is still created in Firestore
-      }
-    } catch (error: any) {
-      console.error("[api] POST /api/v1/locations - Error syncing to SQL:", error.message);
-      // Don't fail the request if sync fails
-    }
-
     console.log("[api] POST /api/v1/locations - Success:", { locationId });
     return NextResponse.json({ locationId }, { status: 201 });
   } catch (error: any) {
@@ -208,7 +220,9 @@ export async function POST(request: NextRequest) {
       stack: error.stack,
       errorType: error.constructor.name,
     });
-    return NextResponse.json({ error: error.message || "Internal server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message || "Internal server error" },
+      { status: 500 },
+    );
   }
 }
-

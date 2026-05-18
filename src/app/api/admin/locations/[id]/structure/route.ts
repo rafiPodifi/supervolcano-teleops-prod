@@ -3,87 +3,88 @@
  * Save/update location floor/room/target/action hierarchy
  */
 
-import { NextRequest, NextResponse } from 'next/server';
-import { adminDb, adminAuth } from '@/lib/firebaseAdmin';
-import { FieldValue } from 'firebase-admin/firestore';
-import { sql } from '@/lib/db/postgres';
+import { NextRequest, NextResponse } from "next/server";
+import { adminDb, adminAuth } from "@/lib/firebaseAdmin";
+import { FieldValue } from "firebase-admin/firestore";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 /**
  * GET - Load existing structure for a location
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: { id: string } },
 ) {
   try {
-    const token = request.headers.get('authorization')?.replace('Bearer ', '');
+    const token = request.headers.get("authorization")?.replace("Bearer ", "");
     if (!token) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    
+
     // Verify token
     let decodedToken;
     try {
       decodedToken = await adminAuth.verifyIdToken(token);
     } catch (err) {
-      console.error('[LoadStructure] Token verification failed:', err);
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+      console.error("[LoadStructure] Token verification failed:", err);
+      return NextResponse.json({ error: "Invalid token" }, { status: 401 });
     }
     const uid = decodedToken.uid;
-    
+
     // Fetch user role from Firestore
-    const userDoc = await adminDb.collection('users').doc(uid).get();
+    const userDoc = await adminDb.collection("users").doc(uid).get();
     const role = userDoc.data()?.role;
-    
+
     console.log(`[LoadStructure] User ${decodedToken.email} has role: ${role}`);
-    
+
     const locationId = params.id;
-    console.log(`[LoadStructure] Fetching structure for location: ${locationId}`);
+    console.log(
+      `[LoadStructure] Fetching structure for location: ${locationId}`,
+    );
 
     // Fetch floors from Firestore
     const floorsSnap = await adminDb
-      .collection('locations')
+      .collection("locations")
       .doc(locationId)
-      .collection('floors')
-      .orderBy('sortOrder')
+      .collection("floors")
+      .orderBy("sortOrder")
       .get();
 
     const floors = [];
 
     for (const floorDoc of floorsSnap.docs) {
       const floorData = floorDoc.data();
-      
+
       // Fetch rooms for this floor
       const roomsSnap = await floorDoc.ref
-        .collection('rooms')
-        .orderBy('sortOrder')
+        .collection("rooms")
+        .orderBy("sortOrder")
         .get();
 
       const rooms = [];
 
       for (const roomDoc of roomsSnap.docs) {
         const roomData = roomDoc.data();
-        
+
         // Fetch targets for this room
         const targetsSnap = await roomDoc.ref
-          .collection('targets')
-          .orderBy('sortOrder')
+          .collection("targets")
+          .orderBy("sortOrder")
           .get();
 
         const targets = [];
 
         for (const targetDoc of targetsSnap.docs) {
           const targetData = targetDoc.data();
-          
+
           // Fetch actions for this target
           const actionsSnap = await targetDoc.ref
-            .collection('actions')
-            .orderBy('sortOrder')
+            .collection("actions")
+            .orderBy("sortOrder")
             .get();
 
-          const actions = actionsSnap.docs.map(actionDoc => ({
+          const actions = actionsSnap.docs.map((actionDoc) => ({
             id: actionDoc.id,
             ...actionDoc.data(),
           }));
@@ -112,7 +113,10 @@ export async function GET(
     console.log(`[LoadStructure] Found ${floors.length} floors`);
 
     // Also fetch location-level intelligence
-    const locationDoc = await adminDb.collection('locations').doc(locationId).get();
+    const locationDoc = await adminDb
+      .collection("locations")
+      .doc(locationId)
+      .get();
     const locationData = locationDoc.data();
 
     return NextResponse.json({
@@ -125,71 +129,79 @@ export async function GET(
       preferences: locationData?.preferences || [],
       restrictions: locationData?.restrictions || [],
     });
-
   } catch (error: any) {
-    console.error('[LoadStructure] Error:', error);
+    console.error("[LoadStructure] Error:", error);
     return NextResponse.json(
-      { error: error.message || 'Failed to load structure' },
-      { status: 500 }
+      { error: error.message || "Failed to load structure" },
+      { status: 500 },
     );
   }
 }
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: { id: string } },
 ) {
   try {
-    const token = request.headers.get('authorization')?.replace('Bearer ', '');
+    const token = request.headers.get("authorization")?.replace("Bearer ", "");
     if (!token) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    
+
     // Verify token
     let decodedToken;
     try {
       decodedToken = await adminAuth.verifyIdToken(token);
     } catch (err) {
-      console.error('[Structure] Token verification failed:', err);
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+      console.error("[Structure] Token verification failed:", err);
+      return NextResponse.json({ error: "Invalid token" }, { status: 401 });
     }
     const uid = decodedToken.uid;
-    
+
     // Fetch user role from Firestore
-    const userDoc = await adminDb.collection('users').doc(uid).get();
+    const userDoc = await adminDb.collection("users").doc(uid).get();
     const role = userDoc.data()?.role;
-    
-    const allowedRoles = ['location_owner', 'admin', 'superadmin', 'partner_admin'];
+
+    const allowedRoles = [
+      "location_owner",
+      "admin",
+      "superadmin",
+      "partner_admin",
+    ];
     if (!allowedRoles.includes(role)) {
-      return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
+      return NextResponse.json(
+        { error: "Insufficient permissions" },
+        { status: 403 },
+      );
     }
-    
+
     console.log(`[Structure] User ${decodedToken.email} saving structure`);
 
     const locationId = params.id;
     const body = await request.json();
-    const { floors, accessInfo, storageLocations, preferences, restrictions } = body;
+    const { floors, accessInfo, storageLocations, preferences, restrictions } =
+      body;
 
     console.log(`[Structure] Saving structure for location ${locationId}`);
     console.log(`[Structure] Floors: ${floors.length}`);
 
     // Delete existing structure RECURSIVELY
     const existingFloorsSnap = await adminDb
-      .collection('locations')
+      .collection("locations")
       .doc(locationId)
-      .collection('floors')
+      .collection("floors")
       .get();
 
     // Must delete subcollections first (Firestore doesn't cascade delete)
     for (const floorDoc of existingFloorsSnap.docs) {
       // Delete rooms and their subcollections
-      const roomsSnap = await floorDoc.ref.collection('rooms').get();
+      const roomsSnap = await floorDoc.ref.collection("rooms").get();
       for (const roomDoc of roomsSnap.docs) {
         // Delete targets and their subcollections
-        const targetsSnap = await roomDoc.ref.collection('targets').get();
+        const targetsSnap = await roomDoc.ref.collection("targets").get();
         for (const targetDoc of targetsSnap.docs) {
           // Delete actions
-          const actionsSnap = await targetDoc.ref.collection('actions').get();
+          const actionsSnap = await targetDoc.ref.collection("actions").get();
           for (const actionDoc of actionsSnap.docs) {
             await actionDoc.ref.delete();
           }
@@ -200,7 +212,7 @@ export async function POST(
       await floorDoc.ref.delete();
     }
 
-    console.log('[Structure] Deleted existing structure');
+    console.log("[Structure] Deleted existing structure");
 
     // Save to Firestore (source of truth)
     const batch = adminDb.batch();
@@ -208,11 +220,11 @@ export async function POST(
     // Save new structure
     for (const floor of floors) {
       const floorRef = adminDb
-        .collection('locations')
+        .collection("locations")
         .doc(locationId)
-        .collection('floors')
+        .collection("floors")
         .doc(floor.id);
-      
+
       batch.set(floorRef, {
         name: floor.name,
         sortOrder: floor.sortOrder,
@@ -221,8 +233,8 @@ export async function POST(
       });
 
       for (const room of floor.rooms) {
-        const roomRef = floorRef.collection('rooms').doc(room.id);
-        
+        const roomRef = floorRef.collection("rooms").doc(room.id);
+
         batch.set(roomRef, {
           name: room.name,
           type: room.type,
@@ -233,8 +245,8 @@ export async function POST(
         });
 
         for (const target of room.targets) {
-          const targetRef = roomRef.collection('targets').doc(target.id);
-          
+          const targetRef = roomRef.collection("targets").doc(target.id);
+
           batch.set(targetRef, {
             name: target.name,
             icon: target.icon,
@@ -244,14 +256,14 @@ export async function POST(
           });
 
           for (const action of target.actions) {
-            const actionRef = targetRef.collection('actions').doc(action.id);
-            
+            const actionRef = targetRef.collection("actions").doc(action.id);
+
             batch.set(actionRef, {
               name: action.name,
               durationMinutes: action.durationMinutes,
               sortOrder: action.sortOrder,
               tools: action.tools || [],
-              instructions: action.instructions || '',
+              instructions: action.instructions || "",
               createdAt: new Date(),
               updatedAt: new Date(),
             });
@@ -264,12 +276,12 @@ export async function POST(
     console.log(`[Structure] Saved to Firestore`);
 
     // Also save intelligence data to location doc
-    const locationRef = adminDb.collection('locations').doc(locationId);
+    const locationRef = adminDb.collection("locations").doc(locationId);
     const updateData: any = {
       hasStructure: true,
       updatedAt: FieldValue.serverTimestamp(),
     };
-    
+
     if (accessInfo !== undefined) {
       updateData.accessInfo = accessInfo || null;
     }
@@ -282,53 +294,20 @@ export async function POST(
     if (restrictions !== undefined) {
       updateData.restrictions = restrictions || [];
     }
-    
+
     await locationRef.update(updateData);
     console.log(`[Structure] Saved intelligence data to location doc`);
 
-    // Also sync to SQL for Robot Intelligence queries
-    // (This is simplified - you may want to expand)
-    try {
-      for (const floor of floors) {
-        await sql.query(
-          `INSERT INTO location_floors (id, location_id, name, sort_order, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, NOW(), NOW())
-           ON CONFLICT (id) DO UPDATE SET
-             name = EXCLUDED.name,
-             sort_order = EXCLUDED.sort_order,
-             updated_at = NOW()`,
-          [floor.id, locationId, floor.name, floor.sortOrder]
-        );
-
-        for (const room of floor.rooms) {
-          await sql.query(
-            `INSERT INTO location_rooms (id, location_id, floor_id, custom_name, sort_order, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-             ON CONFLICT (id) DO UPDATE SET
-               custom_name = EXCLUDED.custom_name,
-               sort_order = EXCLUDED.sort_order,
-               updated_at = NOW()`,
-            [room.id, locationId, floor.id, room.name, room.sortOrder]
-          );
-        }
-      }
-      console.log(`[Structure] Synced to SQL`);
-    } catch (sqlError) {
-      console.error(`[Structure] SQL sync failed:`, sqlError);
-      // Don't fail the request - Firestore is source of truth
-    }
-
     return NextResponse.json({
       success: true,
-      message: 'Structure saved',
+      message: "Structure saved",
       floors: floors.length,
     });
-
   } catch (error: any) {
-    console.error('[Structure] Error:', error);
+    console.error("[Structure] Error:", error);
     return NextResponse.json(
-      { error: error.message || 'Failed to save structure' },
-      { status: 500 }
+      { error: error.message || "Failed to save structure" },
+      { status: 500 },
     );
   }
 }

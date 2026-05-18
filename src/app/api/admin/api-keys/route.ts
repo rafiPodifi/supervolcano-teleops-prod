@@ -1,155 +1,97 @@
 /**
  * API KEY MANAGEMENT
- * Admins create API keys for OEM partners
+ * Admins create API keys for OEM partners.
+ * Backed by Firestore (collection: apiKeys).
  */
 
-import { NextRequest, NextResponse } from 'next/server';
-import { getAdminAuth } from '@/lib/firebaseAdmin';
-import { Client } from 'pg';
-import crypto from 'crypto';
+import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
+import { getAdminAuth } from "@/lib/firebaseAdmin";
+import { apiKeys } from "@/lib/repositories/apiKeysFirestore";
 
-// Force dynamic rendering to prevent build-time execution
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
-// Generate API key
 function generateApiKey(): { key: string; hash: string; prefix: string } {
-  const key = `sk_${crypto.randomBytes(32).toString('hex')}`;
-  const hash = crypto.createHash('sha256').update(key).digest('hex');
+  const key = `sk_${crypto.randomBytes(32).toString("hex")}`;
+  const hash = crypto.createHash("sha256").update(key).digest("hex");
   const prefix = key.substring(0, 10);
   return { key, hash, prefix };
 }
 
-// POST - Create API key
+async function verifyAdmin(request: NextRequest) {
+  const authHeader = request.headers.get("authorization");
+  if (!authHeader?.startsWith("Bearer ")) {
+    return { error: "Unauthorized", status: 401 as const };
+  }
+  const token = authHeader.split("Bearer ")[1];
+  const decoded = await getAdminAuth().verifyIdToken(token);
+  if (decoded.role !== "admin" && decoded.role !== "superadmin") {
+    return { error: "Forbidden", status: 403 as const };
+  }
+  return { uid: decoded.uid };
+}
+
 export async function POST(request: NextRequest) {
-  let client: Client | null = null;
-
   try {
-    // Auth check
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const auth = await verifyAdmin(request);
+    if ("error" in auth)
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
 
-    const token = authHeader.split('Bearer ')[1];
-    const adminAuth = getAdminAuth();
-    const decodedToken = await adminAuth.verifyIdToken(token);
-
-    if (decodedToken.role !== 'admin' && decodedToken.role !== 'superadmin') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
-
-    const { organizationId, organizationName, expiresInDays } = await request.json();
+    const { organizationId, organizationName, expiresInDays } =
+      await request.json();
 
     if (!organizationId || !organizationName) {
       return NextResponse.json(
-        { error: 'organizationId and organizationName required' },
-        { status: 400 }
+        { error: "organizationId and organizationName required" },
+        { status: 400 },
       );
     }
 
-    // Generate API key
     const { key, hash, prefix } = generateApiKey();
-    const expiresAt = expiresInDays 
+    const expiresAt = expiresInDays
       ? new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000)
       : null;
 
-    // Connect to PostgreSQL
-    client = new Client({
-      host: process.env.SQL_HOST,
-      user: process.env.SQL_USER,
-      password: process.env.SQL_PASSWORD,
-      database: process.env.SQL_DATABASE,
-      port: 5432,
-      ssl: { rejectUnauthorized: false },
+    const keyId = await apiKeys.create({
+      keyHash: hash,
+      keyPrefix: prefix,
+      organizationId,
+      organizationName,
+      createdBy: auth.uid,
+      expiresAt,
     });
-
-    await client.connect();
-
-    // Insert API key
-    const result = await client.query(
-      `INSERT INTO api_keys (
-        key_hash, key_prefix, organization_id, organization_name,
-        created_by, expires_at
-      ) VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING id`,
-      [hash, prefix, organizationId, organizationName, decodedToken.uid, expiresAt]
-    );
-
-    const keyId = result.rows[0].id;
 
     return NextResponse.json({
       success: true,
-      apiKey: key,  // ONLY time the full key is shown
+      apiKey: key,
       keyId,
       organizationId,
       organizationName,
       expiresAt,
-      warning: 'Save this API key now. You will not be able to see it again.',
+      warning: "Save this API key now. You will not be able to see it again.",
     });
   } catch (error: any) {
-    console.error('[API Keys] Error:', error);
+    console.error("[API Keys] POST error:", error);
     return NextResponse.json(
       { success: false, error: error.message },
-      { status: 500 }
+      { status: 500 },
     );
-  } finally {
-    if (client) {
-      await client.end();
-    }
   }
 }
 
-// GET - List API keys
 export async function GET(request: NextRequest) {
-  let client: Client | null = null;
-
   try {
-    // Auth check
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const auth = await verifyAdmin(request);
+    if ("error" in auth)
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
 
-    const token = authHeader.split('Bearer ')[1];
-    const adminAuth = getAdminAuth();
-    const decodedToken = await adminAuth.verifyIdToken(token);
-
-    if (decodedToken.role !== 'admin' && decodedToken.role !== 'superadmin') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
-
-    client = new Client({
-      host: process.env.SQL_HOST,
-      user: process.env.SQL_USER,
-      password: process.env.SQL_PASSWORD,
-      database: process.env.SQL_DATABASE,
-      port: 5432,
-      ssl: { rejectUnauthorized: false },
-    });
-
-    await client.connect();
-
-    const result = await client.query(
-      `SELECT 
-        id, key_prefix, organization_id, organization_name,
-        is_active, rate_limit_per_hour, created_at, last_used_at, expires_at
-       FROM api_keys
-       ORDER BY created_at DESC`
-    );
-
-    return NextResponse.json({
-      success: true,
-      apiKeys: result.rows,
-    });
+    const rows = await apiKeys.list();
+    return NextResponse.json({ success: true, apiKeys: rows });
   } catch (error: any) {
+    console.error("[API Keys] GET error:", error);
     return NextResponse.json(
       { success: false, error: error.message },
-      { status: 500 }
+      { status: 500 },
     );
-  } finally {
-    if (client) {
-      await client.end();
-    }
   }
 }
-

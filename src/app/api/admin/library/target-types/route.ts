@@ -1,104 +1,66 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { sql } from '@/lib/db/postgres';
-import { getUserClaims, requireRole } from '@/lib/utils/auth';
+import { NextRequest, NextResponse } from "next/server";
+import { getUserClaims, requireRole } from "@/lib/utils/auth";
+import { targetTypes } from "@/lib/repositories/taxonomyFirestore";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
-/**
- * GET /api/admin/library/target-types
- * List all target types in the base library
- */
+async function authed(request: NextRequest) {
+  const token = request.headers.get("authorization")?.replace("Bearer ", "");
+  if (!token) return { error: "Unauthorized", status: 401 as const };
+  const claims = await getUserClaims(token);
+  if (!claims) return { error: "Invalid token", status: 401 as const };
+  requireRole(claims, ["superadmin", "admin"]);
+  return { ok: true as const };
+}
+
 export async function GET(request: NextRequest) {
   try {
-    // Admin auth check
-    const token = request.headers.get('authorization')?.replace('Bearer ', '');
-    
-    if (!token) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    
-    const claims = await getUserClaims(token);
-    if (!claims) {
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
-    }
-    
-    requireRole(claims, ['superadmin', 'admin']);
+    const a = await authed(request);
+    if ("error" in a)
+      return NextResponse.json({ error: a.error }, { status: a.status });
 
-    const targetTypes = await sql`
-      SELECT * FROM target_types
-      WHERE is_active = true
-      ORDER BY name ASC
-    `;
-    
-    const targetTypesArray = Array.isArray(targetTypes) ? targetTypes : (targetTypes as any)?.rows || [];
-    
+    const rows = await targetTypes.list();
     return NextResponse.json({
       success: true,
-      targetTypes: targetTypesArray,
-      count: targetTypesArray.length,
+      targetTypes: rows,
+      count: rows.length,
     });
   } catch (error: any) {
-    console.error('Failed to fetch target types:', error);
+    console.error("Failed to fetch target types:", error);
     return NextResponse.json(
       { success: false, error: error.message },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
 
-/**
- * POST /api/admin/library/target-types
- * Create a new target type
- */
 export async function POST(request: NextRequest) {
   try {
-    // Admin auth check
-    const token = request.headers.get('authorization')?.replace('Bearer ', '');
-    
-    if (!token) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    
-    const claims = await getUserClaims(token);
-    if (!claims) {
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
-    }
-    
-    requireRole(claims, ['superadmin', 'admin']);
+    const a = await authed(request);
+    if ("error" in a)
+      return NextResponse.json({ error: a.error }, { status: a.status });
 
     const body = await request.json();
-    const { name, description, icon, default_actions } = body;
-    
-    if (!name) {
+    if (!body?.name) {
       return NextResponse.json(
-        { success: false, error: 'Name is required' },
-        { status: 400 }
+        { success: false, error: "Name is required" },
+        { status: 400 },
       );
     }
-    
-    const result = await sql`
-      INSERT INTO target_types (name, description, icon, default_actions)
-      VALUES (
-        ${name},
-        ${description || null},
-        ${icon || null},
-        ${default_actions ? JSON.stringify(default_actions) : null}::jsonb
-      )
-      RETURNING *
-    `;
-    
-    const targetType = Array.isArray(result) ? result[0] : (result as any)?.rows?.[0];
-    
-    return NextResponse.json({
-      success: true,
-      targetType,
+
+    const targetType = await targetTypes.create({
+      name: body.name,
+      description: body.description ?? null,
+      icon: body.icon ?? null,
+      default_actions: body.default_actions,
     });
+
+    return NextResponse.json({ success: true, targetType });
   } catch (error: any) {
-    console.error('Failed to create target type:', error);
+    console.error("Failed to create target type:", error);
     return NextResponse.json(
       { success: false, error: error.message },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
-

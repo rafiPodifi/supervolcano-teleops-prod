@@ -1,93 +1,87 @@
-import { NextResponse } from 'next/server';
-import { sql } from '@/lib/db/postgres';
-import { getUserClaims, requireRole } from '@/lib/utils/auth';
+import { NextResponse } from "next/server";
+import { adminDb } from "@/lib/firebaseAdmin";
+import { getUserClaims, requireRole } from "@/lib/utils/auth";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
-    // Admin auth check
-    const token = request.headers.get('authorization')?.replace('Bearer ', '');
-    
-    if (!token) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    
+    const token = request.headers.get("authorization")?.replace("Bearer ", "");
+    if (!token)
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
     const claims = await getUserClaims(token);
-    if (!claims) {
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
-    }
-    
-    requireRole(claims, ['superadmin', 'admin', 'partner_admin']);
+    if (!claims)
+      return NextResponse.json({ error: "Invalid token" }, { status: 401 });
 
-    console.log('📋 Fetching jobs from SQL database...');
+    requireRole(claims, ["superadmin", "admin", "partner_admin"]);
 
-    // Fetch jobs with media count
-    const jobsResult = await sql`
-      SELECT 
-        j.id,
-        j.title,
-        j.description,
-        j.category,
-        j.priority,
-        j.location_id,
-        j.location_name,
-        j.location_address,
-        j.estimated_duration_minutes,
-        j.status,
-        j.created_at,
-        j.updated_at,
-        COALESCE(
-          json_agg(
-            json_build_object(
-              'id', m.id,
-              'storage_url', m.storage_url,
-              'thumbnail_url', m.thumbnail_url,
-              'file_type', m.file_type,
-              'duration_seconds', m.duration_seconds
-            )
-          ) FILTER (WHERE m.id IS NOT NULL),
-          '[]'::json
-        ) as media
-      FROM jobs j
-      LEFT JOIN media m ON m.job_id = j.id
-      GROUP BY j.id, j.title, j.description, j.category, j.priority,
-               j.location_id, j.location_name, j.location_address,
-               j.estimated_duration_minutes, j.status, j.created_at, j.updated_at
-      ORDER BY j.created_at DESC
-    `;
+    // Firestore reads `jobs` collection. Media joined client-side via
+    // separate query per job (small N today; revisit if list grows).
+    const jobsSnap = await adminDb
+      .collection("jobs")
+      .orderBy("createdAt", "desc")
+      .get();
 
-    // Handle Vercel Postgres result
-    const jobs = Array.isArray(jobsResult) ? jobsResult : (jobsResult as any)?.rows || [];
-
-    console.log(`✅ Fetched ${jobs.length} jobs`);
+    const jobs = await Promise.all(
+      jobsSnap.docs.map(async (doc) => {
+        const data = doc.data();
+        const mediaSnap = await adminDb
+          .collection("media")
+          .where("jobId", "==", doc.id)
+          .get();
+        const media = mediaSnap.docs.map((m) => {
+          const d = m.data();
+          return {
+            id: m.id,
+            storage_url: d.storageUrl ?? d.storage_url ?? null,
+            thumbnail_url: d.thumbnailUrl ?? d.thumbnail_url ?? null,
+            file_type: d.fileType ?? d.file_type ?? null,
+            duration_seconds: d.durationSeconds ?? d.duration_seconds ?? null,
+          };
+        });
+        return {
+          id: doc.id,
+          title: data.title ?? null,
+          description: data.description ?? null,
+          category: data.category ?? null,
+          priority: data.priority ?? null,
+          location_id: data.locationId ?? data.location_id ?? null,
+          location_name: data.locationName ?? data.location_name ?? null,
+          location_address:
+            data.locationAddress ?? data.location_address ?? null,
+          estimated_duration_minutes:
+            data.estimatedDurationMinutes ??
+            data.estimated_duration_minutes ??
+            null,
+          status: data.status ?? null,
+          created_at: data.createdAt ?? null,
+          updated_at: data.updatedAt ?? null,
+          media,
+        };
+      }),
+    );
 
     return NextResponse.json(
       {
         success: true,
         jobs,
         count: jobs.length,
-        timestamp: new Date().toISOString(), // Add timestamp for debugging
+        timestamp: new Date().toISOString(),
       },
       {
-        // Add cache-busting headers
         headers: {
-          'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
-          'Pragma': 'no-cache',
-          'Expires': '0',
+          "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+          Pragma: "no-cache",
+          Expires: "0",
         },
-      }
-    );
-
-  } catch (error: any) {
-    console.error('❌ Failed to fetch jobs:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error.message,
       },
-      { status: 500 }
+    );
+  } catch (error: any) {
+    console.error("Failed to fetch jobs:", error);
+    return NextResponse.json(
+      { success: false, error: error.message },
+      { status: 500 },
     );
   }
 }
-

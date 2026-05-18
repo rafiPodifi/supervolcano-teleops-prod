@@ -20,9 +20,13 @@ const serverSchema = z
     FIRESTORE_DATABASE_ID: z.string().default("default"),
     FIREBASE_STORAGE_BUCKET: z.string().optional(),
 
-    POSTGRES_URL: z.string().url().optional(),
-    POSTGRES_URL_NON_POOLING: z.string().url().optional(),
-    DATABASE_URL: z.string().url().optional(),
+    // Not z.string().url() — Cloud SQL Unix-socket DSNs
+    // (postgresql://user:pass@/db?host=/cloudsql/...) have empty host
+    // and fail WHATWG URL parsing. Actual connectivity is validated by
+    // pg at connect time.
+    POSTGRES_URL: z.string().min(1).optional(),
+    POSTGRES_URL_NON_POOLING: z.string().min(1).optional(),
+    DATABASE_URL: z.string().min(1).optional(),
     SQL_HOST: z.string().optional(),
     SQL_USER: z.string().optional(),
     SQL_PASSWORD: z.string().optional(),
