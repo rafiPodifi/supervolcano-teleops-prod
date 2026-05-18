@@ -16,6 +16,11 @@ locals {
     "roles/cloudsql.client",
     "roles/datastore.user",
     "roles/firebaseauth.admin",
+    # Identity Platform multi-tenancy: firebaseauth.admin only covers the
+    # project-level user pool. Managing users inside a tenant (createUser /
+    # setCustomUserClaims via tenantManager().authForTenant) requires the
+    # identityplatform.admin role.
+    "roles/identityplatform.admin",
     "roles/logging.logWriter",
     "roles/monitoring.metricWriter",
     "roles/cloudtrace.agent",

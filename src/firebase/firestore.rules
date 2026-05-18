@@ -302,5 +302,11 @@ service cloud.firestore {
     // Robot API auth + usage. Server-only — clients never read these.
     match /apiKeys/{id}               { allow read, write: if false; }
     match /apiUsage/{id}              { allow read, write: if false; }
+
+    // Per-location task preferences (org-managers override defaults).
+    match /locationPreferences/{id} {
+      allow read: if isAdmin() || isManager();
+      allow write: if isAdmin() || isManager();
+    }
   }
 }

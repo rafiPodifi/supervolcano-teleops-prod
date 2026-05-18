@@ -1,165 +1,102 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getTasks } from '@/lib/repositories/sql/tasks';
-import { getUserClaims, requireRole } from '@/lib/utils/auth';
-import { adminDb, adminAuth } from '@/lib/firebaseAdmin';
+import { NextRequest, NextResponse } from "next/server";
+import { adminDb, adminAuth } from "@/lib/firebaseAdmin";
+import { getUserClaims, requireRole } from "@/lib/utils/auth";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
+
+async function authed(request: NextRequest) {
+  const token = request.headers.get("authorization")?.replace("Bearer ", "");
+  if (!token) return { error: "Unauthorized", status: 401 as const };
+  const claims = await getUserClaims(token);
+  if (!claims) return { error: "Invalid token", status: 401 as const };
+  requireRole(claims, ["superadmin", "admin", "partner_admin"]);
+  return { token };
+}
 
 export async function GET(request: NextRequest) {
   try {
-    // Admin auth check
-    const token = request.headers.get('authorization')?.replace('Bearer ', '');
-    
-    if (!token) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    
-    const claims = await getUserClaims(token);
-    if (!claims) {
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
-    }
-    
-    // Only allow superadmin, admin, and partner_admin
-    requireRole(claims, ['superadmin', 'admin', 'partner_admin']);
-    
-    const searchParams = request.nextUrl.searchParams;
-    const locationId = searchParams.get('locationId') || undefined;
-    const jobId = searchParams.get('jobId') || undefined; // Changed from taskId
-    const taskType = searchParams.get('taskType') || undefined; // Changed from momentType
-    const humanVerified = searchParams.get('humanVerified') === 'true' ? true : 
-                         searchParams.get('humanVerified') === 'false' ? false : undefined;
-    const limit = parseInt(searchParams.get('limit') || '50');
-    const offset = parseInt(searchParams.get('offset') || '0');
-    
-    const result = await getTasks({
-      locationId,
-      jobId,
-      taskType,
-      humanVerified,
-      limit,
-      offset
-    });
-    
-    return NextResponse.json(result);
+    const a = await authed(request);
+    if ("error" in a)
+      return NextResponse.json({ error: a.error }, { status: a.status });
+
+    const sp = request.nextUrl.searchParams;
+    const locationId = sp.get("locationId") ?? undefined;
+    const jobId = sp.get("jobId") ?? undefined;
+    const limit = parseInt(sp.get("limit") ?? "50");
+    const offset = parseInt(sp.get("offset") ?? "0");
+
+    let q: FirebaseFirestore.Query = adminDb.collection("tasks");
+    if (locationId) q = q.where("locationId", "==", locationId);
+    if (jobId) q = q.where("jobId", "==", jobId);
+    q = q.orderBy("createdAt", "desc");
+
+    const snap = await q.get();
+    const all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const tasks = all.slice(offset, offset + limit);
+
+    return NextResponse.json({ success: true, tasks });
   } catch (error: any) {
-    console.error('Get tasks error:', error);
+    console.error("Get tasks error:", error);
     return NextResponse.json(
-      { error: error.message || 'Failed to get tasks' },
-      { status: 500 }
+      { error: error.message || "Failed to get tasks" },
+      { status: 500 },
     );
   }
 }
 
-/**
- * Create a new task in Firestore (not SQL)
- * Firestore is the source of truth, SQL is synced copy
- */
 export async function POST(request: NextRequest) {
   try {
-    // Admin auth check
-    const token = request.headers.get('authorization')?.replace('Bearer ', '');
-    
-    if (!token) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    
-    const claims = await getUserClaims(token);
-    if (!claims) {
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
-    }
-    
-    // Only allow superadmin, admin, and partner_admin
-    requireRole(claims, ['superadmin', 'admin', 'partner_admin']);
-    
-    // Get user ID from token
-    const decodedToken = await adminAuth.verifyIdToken(token);
-    const userId = decodedToken.uid;
-    
+    const a = await authed(request);
+    if ("error" in a)
+      return NextResponse.json({ error: a.error }, { status: a.status });
+
+    const decoded = await adminAuth.verifyIdToken(a.token);
+    const userId = decoded.uid;
+
     const data = await request.json();
-    
-    console.log('🔍 API: Received task creation request:', {
-      title: data.title,
-      locationId: data.locationId,
-      locationName: data.locationName,
-      category: data.category,
-    });
-    
-    // Validate required fields
     if (!data.title) {
-      console.error('❌ API: Missing title');
       return NextResponse.json(
-        { success: false, error: 'Title is required' },
-        { status: 400 }
+        { success: false, error: "Title is required" },
+        { status: 400 },
       );
     }
-    
     if (!data.locationId) {
-      console.error('❌ API: Missing locationId');
       return NextResponse.json(
-        { success: false, error: 'Location ID is required' },
-        { status: 400 }
+        { success: false, error: "Location ID is required" },
+        { status: 400 },
       );
     }
-    
-    // Create task document in Firestore
+
     const taskData = {
       title: data.title,
-      description: data.description || '',
-      category: data.category || 'general',
-      locationId: data.locationId, // ← Use locationId consistently
-      locationName: data.locationName || '',
-      estimatedDuration: data.estimatedDurationMinutes || null,
-      priority: data.priority || 'medium',
-      status: 'available',
-      state: 'available',
-      assigned_to: 'unassigned',
+      description: data.description ?? "",
+      category: data.category ?? "general",
+      locationId: data.locationId,
+      locationName: data.locationName ?? "",
+      estimatedDuration: data.estimatedDurationMinutes ?? null,
+      priority: data.priority ?? "medium",
+      status: "available",
+      state: "available",
+      assigned_to: "unassigned",
       createdAt: new Date(),
-      createdBy: userId || 'admin',
+      createdBy: userId || "admin",
       updatedAt: new Date(),
-      partnerOrgId: data.partnerOrgId || 'demo-org',
+      partnerOrgId: data.partnerOrgId ?? "demo-org",
     };
-    
-    console.log('🔍 API: Task data to save:', taskData);
-    
-    // Add to Firestore
-    const docRef = await adminDb.collection('tasks').add(taskData);
-    
-    console.log('✅ API: Task saved to Firestore with ID:', docRef.id);
-    
-    // Verify it was saved (exists is a property, not a method)
-    const savedDoc = await docRef.get();
-    console.log('🔍 API: Verification - Document exists:', savedDoc.exists);
-    if (savedDoc.exists) {
-      console.log('🔍 API: Verification - Saved data:', savedDoc.data());
-    } else {
-      console.error('❌ API: Verification failed - Document does not exist!');
-    }
-    
-    // OPTIONAL: Auto-sync to SQL (don't fail if this fails)
-    try {
-      console.log('Auto-syncing task to SQL...');
-      const { syncJobFromRoot } = await import('@/lib/services/sync/firestoreToSql');
-      await syncJobFromRoot(docRef.id, data.locationId);
-      console.log('Task synced to SQL successfully');
-    } catch (syncError: any) {
-      console.error('Failed to sync to SQL (task still saved in Firestore):', syncError);
-      // Don't fail the request - task is saved in Firestore
-    }
-    
+
+    const docRef = await adminDb.collection("tasks").add(taskData);
+
     return NextResponse.json({
       success: true,
       id: docRef.id,
-      message: 'Task created successfully in Firestore',
-      task: {
-        id: docRef.id,
-        ...taskData
-      }
+      message: "Task created",
+      task: { id: docRef.id, ...taskData },
     });
   } catch (error: any) {
-    console.error('Failed to create task:', error);
+    console.error("Failed to create task:", error);
     return NextResponse.json(
-      { success: false, error: error.message || 'Failed to create task' },
-      { status: 500 }
+      { success: false, error: error.message || "Failed to create task" },
+      { status: 500 },
     );
   }
 }

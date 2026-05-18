@@ -148,27 +148,64 @@ Drop entirely: `locations`, `location_floors`, `location_rooms`, `location_targe
   - `src/app/api/admin/sync/all/route.ts`
   - `src/app/api/admin/robot-intelligence/stats/route.ts.bak`
 
-**Phase B.2 deferred (out of scope for first pass — still using Postgres):**
+**Phase B.2-tail (✅ done 2026-05-18):**
 
-These weren't in original B.2 list but surfaced during cleanup. Still write to Postgres tables that no longer exist on Cloud SQL.
+Migrated to Firestore:
 
-- `src/app/api/admin/tasks/route.ts` (GET/POST)
-- `src/app/api/admin/tasks/generate/route.ts`
-- `src/app/api/admin/sync/route.ts`
-- `src/app/api/admin/sync-media/route.ts`
-- `src/app/api/admin/test-media-sync/route.ts`
-- `src/app/api/org/preferences/route.ts`
-- `src/app/api/org/locations/[id]/preferences/route.ts`
-- `src/app/api/org/locations/[id]/moments/route.ts`
-- `src/lib/repositories/sql/tasks.ts`
+- `/api/admin/tasks` (GET + POST) — `tasks` collection
+- `/api/org/preferences` (POST + DELETE) — `locationPreferences` collection, deterministic upsert id `${locationId}__${taskId}`
+- `/api/org/locations/[id]/preferences` (GET) — `locationPreferences` filtered by `locationId`
+- Firestore rules: `locationPreferences` RW for admin + manager
+
+Deleted (no UI caller, Postgres-only):
+
+- `/api/admin/tasks/generate/route.ts`
+- `/api/admin/sync/route.ts`
+- `/api/admin/sync-media/route.ts`
+- `/api/admin/test-media-sync/route.ts`
+- `/api/org/locations/[id]/moments/route.ts`
+- `src/lib/repositories/sql/tasks.ts` (+ empty dir)
 - `src/lib/repositories/sql/locationPreferences.ts`
-- `src/lib/services/sync/firestoreToSql.ts`
+- `src/lib/services/sync/firestoreToSql.ts` (+ empty dir)
 
-Schedule a B.2-tail follow-up to either migrate (if reachable from UI) or delete.
+UI cleanup:
 
-**Phase B.3 — api_keys, api_usage → Firestore (pending):**
-**Phase B.4 — Robot v1 routes → Firestore (pending):**
-**Phase B.5 — Delete non-v1 robot routes (pending)**:
+- `src/app/admin/robot-intelligence/page.tsx`: `syncData` + `resetDatabase` neutralized (alerts explaining Firestore is the source of truth).
+
+## Postgres surface after B-phase complete
+
+Remaining `from '@/lib/db/postgres'` imports — all align with 4-table KEEP scope:
+
+| File                                                                 | Table(s)                 |
+| -------------------------------------------------------------------- | ------------------------ |
+| `src/app/api/admin/training/route.ts`                                | training_videos          |
+| `src/app/api/robot/v1/training/route.ts`                             | training_videos          |
+| `src/app/api/robot/v1/feedback/route.ts`                             | robot_executions         |
+| `src/app/api/admin/robot-intelligence/stats/route.ts`                | shifts, robot_executions |
+| `src/app/api/robot-intelligence/route.ts`                            | robot_intelligence       |
+| `src/lib/services/video-intelligence/processing-pipeline.service.ts` | training_videos          |
+| `src/services/firebase-to-sql-sync.service.ts`                       | robot_intelligence       |
+
+**Phase B.3 — api_keys, api_usage → Firestore (✅ done 2026-05-18):**
+
+- New repo `src/lib/repositories/apiKeysFirestore.ts` (apiKeys + apiUsage)
+- Rewrote `/api/admin/api-keys` (admin CRUD)
+- Rewrote `/api/robot-intelligence` (Firestore auth + usage, Postgres `robot_intelligence` reads)
+- Firestore rules: `apiKeys` / `apiUsage` → server-only (deny all client access)
+
+**Phase B.4 — Robot v1 routes (✅ done 2026-05-18):**
+
+- `/api/robot/v1/training` — already correct (Postgres `training_videos` = KEEP)
+- `/api/robot/v1/feedback` — already correct (Postgres `robot_executions` = KEEP)
+- `/api/robot/v1/address-intelligence` — already Firestore (no change)
+- `/api/robot/v1/query` — **deleted**: 6-table JOIN against vanished schema; current Firestore docs lack the columns it queried (action_verb, sequence_order, human_verified, etc.). Rebuild later from current model if needed.
+
+**Phase B.5 — Delete non-v1 robot routes (✅ done 2026-05-18):**
+
+- `/api/robot/jobs/*` (incl. `[id]/videos`) — deleted
+- `/api/robot/locations/*` (incl. `[id]/jobs`) — deleted
+- `/api/robot/sessions` — deleted
+- `/api/robot-intelligence` — kept (separate namespace, actively serves OEM partner API; migrated in B.3 to use Firestore apiKeys)
 
 **Phase C — Bootstrap Drizzle baseline (4 hours):**
 
