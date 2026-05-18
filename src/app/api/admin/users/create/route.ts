@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
+import { authForTenant } from "@/lib/auth/tenantAuth";
 import { requireAdmin } from "@/lib/apiAuth";
 import type { UserRole } from "@/domain/user/user.types";
 
@@ -84,8 +85,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Scope all Auth ops to the caller's Identity Platform tenant. Without
+    // this the user lands in the project-level pool and clients that sign in
+    // against the tenant (e.g. mobile) hit auth/user-not-found.
+    const tenantId =
+      (decodedToken?.firebase as { tenant?: string } | undefined)?.tenant ??
+      null;
+    const tenantAuth = authForTenant(tenantId);
+    console.log("[CREATE User] Creating in tenant:", tenantId ?? "<default>");
+
     // Create Auth user
-    const userRecord = await adminAuth.createUser({
+    const userRecord = await tenantAuth.createUser({
       email: body.email,
       password: body.password,
       displayName: body.displayName,
@@ -100,13 +110,15 @@ export async function POST(request: NextRequest) {
 
     if (body.organizationId) {
       customClaims.organizationId = body.organizationId;
+      // permissions middleware reads partnerId for non-superadmin roles
+      customClaims.partnerId = body.organizationId;
     }
 
     if (body.teleoperatorId) {
       customClaims.teleoperatorId = body.teleoperatorId;
     }
 
-    await adminAuth.setCustomUserClaims(userRecord.uid, customClaims);
+    await tenantAuth.setCustomUserClaims(userRecord.uid, customClaims);
     console.log("[CREATE User] Custom claims set:", customClaims);
 
     // Create Firestore document
@@ -188,4 +200,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-
