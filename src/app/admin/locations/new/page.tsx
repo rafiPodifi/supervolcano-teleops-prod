@@ -3,9 +3,15 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
-import { MapPin, Building2, ArrowLeft, ArrowRight, Loader2 } from "lucide-react";
+import {
+  MapPin,
+  Building2,
+  ArrowLeft,
+  ArrowRight,
+  Loader2,
+} from "lucide-react";
 import Link from "next/link";
-import AddressAutocomplete from '@/components/admin/AddressAutocomplete';
+import AddressAutocomplete from "@/components/admin/AddressAutocomplete";
 
 export default function NewLocationPage() {
   const router = useRouter();
@@ -27,6 +33,13 @@ export default function NewLocationPage() {
       return;
     }
 
+    if (!claims?.partnerId) {
+      setError(
+        "Your account has no partner organization assigned. Contact an admin.",
+      );
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
@@ -43,7 +56,7 @@ export default function NewLocationPage() {
           name: name.trim(),
           address: address.trim() || undefined,
           type: "other",
-          partnerOrgId: claims?.partnerId || "demo-org",
+          partnerOrgId: claims.partnerId,
           status: "active",
         }),
       });
@@ -54,7 +67,7 @@ export default function NewLocationPage() {
       }
 
       const data = await response.json();
-      
+
       // Redirect to location detail page where wizard will auto-show
       router.push(`/admin/locations/${data.locationId}`);
     } catch (err: any) {
@@ -78,8 +91,12 @@ export default function NewLocationPage() {
               <ArrowLeft className="h-5 w-5 text-gray-900 dark:text-white" />
             </Link>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Create New Location</h1>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Step 1 of 3</p>
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+                Create New Location
+              </h1>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                Step 1 of 3
+              </p>
             </div>
           </div>
 
@@ -89,21 +106,27 @@ export default function NewLocationPage() {
               <div className="w-8 h-8 bg-orange-500 text-white rounded-full flex items-center justify-center">
                 <MapPin className="w-4 h-4" />
               </div>
-              <span className="text-sm font-medium text-orange-500">Basic Info</span>
+              <span className="text-sm font-medium text-orange-500">
+                Basic Info
+              </span>
             </div>
             <div className="flex-1 h-0.5 bg-gray-200 dark:bg-[#2a2a2a]" />
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 bg-gray-200 dark:bg-[#2a2a2a] text-gray-400 dark:text-gray-500 rounded-full flex items-center justify-center">
                 <Building2 className="w-4 h-4" />
               </div>
-              <span className="text-sm text-gray-400 dark:text-gray-500">Build Structure</span>
+              <span className="text-sm text-gray-400 dark:text-gray-500">
+                Build Structure
+              </span>
             </div>
             <div className="flex-1 h-0.5 bg-gray-200 dark:bg-[#2a2a2a]" />
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 bg-gray-200 dark:bg-[#2a2a2a] text-gray-400 dark:text-gray-500 rounded-full flex items-center justify-center">
                 <span className="text-xs font-medium">✓</span>
               </div>
-              <span className="text-sm text-gray-400 dark:text-gray-500">Review</span>
+              <span className="text-sm text-gray-400 dark:text-gray-500">
+                Review
+              </span>
             </div>
           </div>
         </div>
@@ -149,7 +172,9 @@ export default function NewLocationPage() {
             {/* Info box */}
             <div className="bg-blue-50 border border-blue-100 rounded-lg p-4">
               <p className="text-sm text-blue-800">
-                <span className="font-medium">💡 Next step:</span> You will build the structure of this location by adding floors, rooms, and cleaning targets.
+                <span className="font-medium">💡 Next step:</span> You will
+                build the structure of this location by adding floors, rooms,
+                and cleaning targets.
               </p>
             </div>
 

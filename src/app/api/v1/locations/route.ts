@@ -160,10 +160,17 @@ export async function POST(request: NextRequest) {
     });
 
     // Validate required fields
-    if (!name || !address || !partnerOrgId) {
-      console.error("[api] POST /api/v1/locations - Missing required fields");
+    const missing: string[] = [];
+    if (!name) missing.push("name");
+    if (!address) missing.push("address");
+    if (!partnerOrgId) missing.push("partnerOrgId");
+    if (missing.length > 0) {
+      console.error(
+        "[api] POST /api/v1/locations - Missing required fields:",
+        missing,
+      );
       return NextResponse.json(
-        { error: "Missing required fields: name, address, partnerOrgId" },
+        { error: `Missing required fields: ${missing.join(", ")}` },
         { status: 400 },
       );
     }

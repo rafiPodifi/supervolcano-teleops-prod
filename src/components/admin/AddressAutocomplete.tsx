@@ -1,9 +1,9 @@
-'use client';
+"use client";
 
-import React, { useRef, useState, useEffect } from 'react';
-import { LoadScript, Autocomplete } from '@react-google-maps/api';
+import React, { useRef, useState, useEffect } from "react";
+import { LoadScript, Autocomplete } from "@react-google-maps/api";
 
-const libraries: ('places')[] = ['places'];
+const libraries: "places"[] = ["places"];
 
 export interface AddressData {
   street: string;
@@ -26,20 +26,22 @@ interface AddressAutocompleteProps {
   className?: string;
 }
 
-export default function AddressAutocomplete({ 
-  value, 
-  onChange, 
+export default function AddressAutocomplete({
+  value,
+  onChange,
   error,
-  placeholder = 'Start typing an address...',
-  className = ''
+  placeholder = "Start typing an address...",
+  className = "",
 }: AddressAutocompleteProps) {
   const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
-  const [inputValue, setInputValue] = useState(value || '');
+  const [inputValue, setInputValue] = useState(value || "");
   const [isLoaded, setIsLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // Support both NEXT_PUBLIC_ (Next.js) and VITE_ (Vite) prefixes for flexibility
-  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || process.env.VITE_GOOGLE_MAPS_API_KEY;
+  const apiKey =
+    process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ||
+    process.env.VITE_GOOGLE_MAPS_API_KEY;
 
   useEffect(() => {
     if (value && value !== inputValue) {
@@ -57,35 +59,35 @@ export default function AddressAutocomplete({
 
       if (place.address_components && place.geometry?.location) {
         const addressData: AddressData = {
-          street: '',
-          city: '',
-          state: '',
-          zip: '',
-          fullAddress: place.formatted_address || '',
-          placeId: place.place_id || '',
+          street: "",
+          city: "",
+          state: "",
+          zip: "",
+          fullAddress: place.formatted_address || "",
+          placeId: place.place_id || "",
           coordinates: {
             lat: place.geometry.location.lat(),
-            lng: place.geometry.location.lng()
-          }
+            lng: place.geometry.location.lng(),
+          },
         };
 
         // Parse address components
-        place.address_components.forEach(component => {
+        place.address_components.forEach((component) => {
           const types = component.types;
 
-          if (types.includes('street_number')) {
-            addressData.street = component.long_name + ' ';
+          if (types.includes("street_number")) {
+            addressData.street = component.long_name + " ";
           }
-          if (types.includes('route')) {
+          if (types.includes("route")) {
             addressData.street += component.long_name;
           }
-          if (types.includes('locality')) {
+          if (types.includes("locality")) {
             addressData.city = component.long_name;
           }
-          if (types.includes('administrative_area_level_1')) {
+          if (types.includes("administrative_area_level_1")) {
             addressData.state = component.short_name;
           }
-          if (types.includes('postal_code')) {
+          if (types.includes("postal_code")) {
             addressData.zip = component.long_name;
           }
         });
@@ -110,17 +112,17 @@ export default function AddressAutocomplete({
             // Fallback: create basic address data
             onChange({
               street: e.target.value,
-              city: '',
-              state: '',
-              zip: '',
+              city: "",
+              state: "",
+              zip: "",
               fullAddress: e.target.value,
-              placeId: '',
-              coordinates: { lat: 0, lng: 0 }
+              placeId: "",
+              coordinates: { lat: 0, lng: 0 },
             });
           }}
           placeholder={placeholder}
           className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all ${
-            error ? 'border-red-500' : 'border-gray-300'
+            error ? "border-red-500" : "border-gray-300"
           } ${className}`}
         />
         <p className="text-yellow-600 text-xs mt-1">
@@ -137,8 +139,8 @@ export default function AddressAutocomplete({
       libraries={libraries}
       onLoad={() => setIsLoaded(true)}
       onError={(error) => {
-        console.error('Google Maps API load error:', error);
-        setLoadError('Failed to load Google Maps API');
+        console.error("Google Maps API load error:", error);
+        setLoadError("Failed to load Google Maps API");
       }}
     >
       <div className="w-full">
@@ -154,17 +156,17 @@ export default function AddressAutocomplete({
                 setInputValue(e.target.value);
                 onChange({
                   street: e.target.value,
-                  city: '',
-                  state: '',
-                  zip: '',
+                  city: "",
+                  state: "",
+                  zip: "",
                   fullAddress: e.target.value,
-                  placeId: '',
-                  coordinates: { lat: 0, lng: 0 }
+                  placeId: "",
+                  coordinates: { lat: 0, lng: 0 },
                 });
               }}
               placeholder={placeholder}
               className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all ${
-                error ? 'border-red-500' : 'border-gray-300'
+                error ? "border-red-500" : "border-gray-300"
               } ${className}`}
             />
             <p className="text-yellow-600 text-xs mt-1">{loadError}</p>
@@ -174,17 +176,30 @@ export default function AddressAutocomplete({
             onLoad={onLoad}
             onPlaceChanged={onPlaceChanged}
             options={{
-              types: ['address'],
-              componentRestrictions: { country: 'us' }
+              types: ["address"],
+              componentRestrictions: { country: "us" },
             }}
           >
             <input
               type="text"
               value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
+              onChange={(e) => {
+                setInputValue(e.target.value);
+                // Bubble raw text up so parent state tracks typing even if
+                // the user submits without picking a Places suggestion.
+                onChange({
+                  street: e.target.value,
+                  city: "",
+                  state: "",
+                  zip: "",
+                  fullAddress: e.target.value,
+                  placeId: "",
+                  coordinates: { lat: 0, lng: 0 },
+                });
+              }}
               placeholder={placeholder}
               className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all ${
-                error ? 'border-red-500' : 'border-gray-300'
+                error ? "border-red-500" : "border-gray-300"
               } ${className}`}
             />
           </Autocomplete>
@@ -194,4 +209,3 @@ export default function AddressAutocomplete({
     </LoadScript>
   );
 }
-
