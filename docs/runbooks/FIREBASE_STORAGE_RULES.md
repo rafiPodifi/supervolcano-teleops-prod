@@ -1,59 +1,106 @@
-# Firebase Storage Rules for Direct Uploads
+# Firebase Storage — Rules and Bucket Setup
 
-## Setup Instructions
+This project uses **two env-scoped Firebase Storage buckets**, both in the
+single GCP project `gen-lang-client-0659584673`:
 
-1. Go to Firebase Console → Storage → Rules
-2. Replace the existing rules with the following:
+| Env     | Bucket                                           |
+| ------- | ------------------------------------------------ |
+| staging | `gen-lang-client-0659584673-sv-firebase-staging` |
+| prod    | `gen-lang-client-0659584673-sv-firebase-prod`    |
 
-### Production Rules (Recommended)
+Buckets are provisioned by Terraform (`infra/terraform/storage.tf`):
 
-```javascript
-rules_version = '2';
-service firebase.storage {
-  match /b/{bucket}/o {
-    // Allow authenticated users to upload to media folder
-    match /media/{allPaths=**} {
-      allow read: if true; // Public read for robot access
-      allow write: if request.auth != null; // Only authenticated users can upload
-    }
-    
-    // Deny all other paths
-    match /{allPaths=**} {
-      allow read, write: if false;
-    }
-  }
-}
+- `google_storage_bucket.buckets` — the underlying GCS bucket
+- `google_firebase_storage_bucket.firebase` — registers the bucket with
+  Firebase Storage so the Firebase Storage REST endpoint and client SDKs
+  (`firebase/storage`, `firebasestorage.googleapis.com`) accept it
+
+Without the Firebase registration step, the bucket exists in GCS but the
+Firebase Storage REST endpoint returns 404 / "does not exist". Mobile
+uploads surface this as a generic "Upload failed" toast with no
+upload-progress events.
+
+## Canonical rules file
+
+`src/firebase/storage.rules` — single ruleset shared by both buckets.
+
+Relevant paths:
+
+- `media/{allPaths=**}` — authenticated read + write. Mobile video uploads
+  land here at `media/<locationId>/<jobId>/<filename>`.
+- `locations/{locationId}/instructions/{instructionId}/{filename}` —
+  authenticated read + write for instruction images.
+- `videos/{locationId}/{userId}/{filename}` — create restricted to the
+  signed-in field worker, content-type must match `video/.*`.
+- `orgs/{partnerOrgId}/**` — scoped to matching `partner_org_id` claim or
+  admin.
+
+When editing rules, remember Identity Platform multi-tenancy: tokens issued
+to tenant users still satisfy `request.auth != null` and carry the same
+custom claims (`role`, `partner_org_id`) — no tenant-aware syntax needed in
+storage rules.
+
+## Deploying rules
+
+`firebase.json` lists both buckets explicitly:
+
+```json
+"storage": [
+  { "bucket": "gen-lang-client-0659584673-sv-firebase-staging", "rules": "src/firebase/storage.rules" },
+  { "bucket": "gen-lang-client-0659584673-sv-firebase-prod",    "rules": "src/firebase/storage.rules" }
+]
 ```
 
-### Development Rules (Temporary - Less Secure)
+The `bucket:` field is required — without it the CLI only deploys to the
+project default bucket (not the buckets we use).
 
-If you don't have authentication set up yet, you can temporarily use:
-
-```javascript
-rules_version = '2';
-service firebase.storage {
-  match /b/{bucket}/o {
-    match /{allPaths=**} {
-      allow read, write: if true; // TEMPORARY - lock down in production
-    }
-  }
-}
+```bash
+npx firebase-tools deploy --only storage --project gen-lang-client-0659584673
 ```
 
-⚠️ **WARNING**: The development rules allow anyone to upload/delete files. Only use this for testing. Switch to production rules before going live.
+`.firebaserc` pins the default project alias so the `--project` flag value
+matches the GCP project. If a teammate runs without the global `firebase`
+CLI installed, `npx firebase-tools …` works on first run.
 
-## Testing
+To deploy rules for one bucket only:
 
-After updating rules:
-1. Try uploading a file from the admin interface
-2. Check Firebase Console → Storage to verify the file appears
-3. Verify the file URL is accessible
+```bash
+npx firebase-tools deploy --only storage:gen-lang-client-0659584673-sv-firebase-staging \
+  --project gen-lang-client-0659584673
+```
 
-## Security Notes
+## Verifying setup
 
-- Production rules require Firebase Authentication
-- Make sure your app has authentication enabled
-- Consider adding file type validation in rules
-- Consider adding file size limits in rules
-- Consider adding path validation to prevent unauthorized uploads
+Bucket is Firebase-registered:
 
+```bash
+gcloud storage buckets describe gs://gen-lang-client-0659584673-sv-firebase-staging \
+  --format='value(metadata.firebase)'
+```
+
+Non-empty = registered. Empty = run `terraform apply` to add the
+`google_firebase_storage_bucket` resource (or call the `:addFirebase` REST
+endpoint manually — see `docs/infrastructure/gcp-setup.md` §3.4).
+
+End-to-end smoke from mobile: record a clip, watch the upload progress in
+the queue screen. Failure paths:
+
+- Generic "Upload failed" toast, no progress → bucket not Firebase-registered
+  (REST 404) **or** rules missing on that bucket (deploy them).
+- "Permission needed" toast → rules deployed but reject the path. Check
+  `request.auth` claims and that the path matches a `match` block.
+- "No internet" toast → see `mobile-app/src/utils/user-facing-error.ts` —
+  triggered by error messages containing `fetch`/`network`/`offline`.
+
+## Security notes
+
+- `media/**` is currently authenticated-only for both read and write. If
+  robot consumers move off signed URLs and need direct anonymous read, add a
+  narrower public-read rule rather than widening `media/**`.
+- No file-size or content-type validation in rules today. The mobile client
+  sets `Content-Type: video/mp4` and enforces size at the queue layer.
+  Server-side enforcement is a TODO if untrusted clients are ever added.
+- Production cleanup: the dev-only `allow read, write: if true` snippet from
+  the previous version of this doc has been removed. Never deploy
+  open-world rules to either env — the staging bucket is publicly
+  reachable via Firebase Storage REST and would be enumerable.

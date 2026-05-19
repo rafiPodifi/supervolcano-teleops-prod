@@ -22,6 +22,7 @@ locals {
     "logging.googleapis.com",
     "compute.googleapis.com",
     "firebaserules.googleapis.com",
+    "firebasestorage.googleapis.com",
   ]
 }
 

@@ -75,6 +75,24 @@ under `src/app/api/mobile/` (verify token, check assignment, then query
 with `adminDb`). Single-document `getDoc` reads are fine if the rule allows
 them.
 
+### Mobile video upload
+
+Video uploads go **client-side** to Firebase Storage (not via the backend).
+`mobile-app/src/services/upload.ts` opens a resumable session at
+`firebasestorage.googleapis.com/v0/b/<bucket>/o`, then streams the file via
+`expo-file-system` `createUploadTask`. The bucket comes from
+`EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET` and **must** be Firebase-registered (see
+Deployment → Firebase Storage bucket registration). After the binary upload,
+metadata is POSTed to `/api/teleoperator/media/metadata` (no auth, server
+writes to Firestore via Admin SDK). Storage rules for the `media/**` path
+must allow authenticated write — they live in `src/firebase/storage.rules`
+and deploy per-bucket via `firebase.json`.
+
+If uploads fail instantly with a generic "Upload failed" toast, the usual
+suspects are (1) bucket not Firebase-registered → REST 404, (2) rules not
+deployed to that specific bucket → 403, (3) wrong `EXPO_PUBLIC_*` build args
+in `mobile-app/eas.json` for the active profile.
+
 ### Mobile error copy
 
 `mobile-app/src/utils/user-facing-error.ts` keyword-classifies error
@@ -247,3 +265,23 @@ read at runtime. Changing them requires a rebuild — they are passed as Docker
 `--build-arg` in the deploy workflows, not as Cloud Run env vars. A wrong
 `NEXT_PUBLIC_FIREBASE_API_KEY` or `NEXT_PUBLIC_AUTH_TENANT_ID` surfaces as
 `auth/api-key-not-valid` / `auth/invalid-tenant-id` in the browser.
+
+### Firebase Storage bucket registration (Critical)
+
+The per-env firebase buckets
+(`gen-lang-client-0659584673-sv-firebase-{staging,prod}`) are created as plain
+GCS buckets in `infra/terraform/storage.tf`, **and** registered with Firebase
+Storage via `google_firebase_storage_bucket` in the same file. The
+registration is what lets the Firebase Storage client SDK reach them via
+`https://firebasestorage.googleapis.com/v0/b/<bucket>/o`. Without it the
+endpoint returns 404 even though the GCS bucket exists, and mobile uploads
+fail instantly with a generic "Upload failed". Any new env-scoped firebase
+bucket must include both resources.
+
+`firebase.json` lists the buckets explicitly under `"storage": [...]` with
+one entry per bucket — Firebase CLI needs the `bucket` field to know which
+bucket gets which ruleset. A single object (no `bucket`) only deploys rules
+to the project default bucket, which is not what we use. Deploy with
+`npx firebase-tools deploy --only storage --project gen-lang-client-0659584673`
+(global `firebase` install optional). `.firebaserc` pins the default project
+so the `--project` flag matches.

@@ -69,3 +69,17 @@ resource "google_storage_bucket_iam_member" "runtime_reader_firebase" {
   role   = "roles/storage.objectViewer"
   member = "serviceAccount:${google_service_account.cloud_run[each.value.env].email}"
 }
+
+# Register the firebase-purpose buckets with Firebase Storage so the Firebase
+# Storage SDK (mobile/web clients) can use them via
+# firebasestorage.googleapis.com. Without this, client SDK uploads return 404
+# from the Firebase Storage REST endpoint even though the GCS bucket exists.
+resource "google_firebase_storage_bucket" "firebase" {
+  for_each = { for k, v in local.buckets : k => v if v.purpose == "firebase" }
+
+  provider  = google-beta
+  project   = var.project_id
+  bucket_id = google_storage_bucket.buckets[each.key].name
+
+  depends_on = [google_project_service.apis]
+}

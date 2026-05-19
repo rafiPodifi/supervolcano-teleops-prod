@@ -11,7 +11,9 @@ Single-project, dual-env (staging + prod) infrastructure as code.
 - Workload Identity Federation for keyless CI auth
 - Cloud SQL Postgres instances (staging zonal, prod HA regional + PITR)
 - Firestore named databases (`staging-db`, `prod-db`)
-- 6 GCS buckets (videos/exports/firebase × staging/prod)
+- 6 GCS buckets (videos/exports/firebase × staging/prod), with the
+  `firebase-*` buckets also registered as Firebase Storage resources so the
+  Firebase Storage client SDK can reach them
 - Identity Platform tenants (`staging`, `prod`)
 - Secret Manager entries (Postgres password populated; others empty for manual fill)
 - Cloud Run services (placeholder image; CI deploys real images)

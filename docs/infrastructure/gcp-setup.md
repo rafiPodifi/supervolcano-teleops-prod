@@ -45,6 +45,8 @@ gcloud services enable \
   iamcredentials.googleapis.com \
   cloudresourcemanager.googleapis.com \
   storage.googleapis.com \
+  firebasestorage.googleapis.com \
+  firebaserules.googleapis.com \
   monitoring.googleapis.com \
   logging.googleapis.com
 ```
@@ -286,6 +288,35 @@ EOF
 gcloud storage buckets update gs://sv-firebase-staging --cors-file=/tmp/cors.json
 gcloud storage buckets update gs://sv-firebase-prod    --cors-file=/tmp/cors.json
 ```
+
+### 3.4 Register firebase buckets with Firebase Storage
+
+The Firebase Storage client SDK (used by the mobile app) calls
+`https://firebasestorage.googleapis.com/v0/b/<bucket>/o`. That endpoint only
+recognises buckets registered as Firebase Storage resources — a plain GCS
+bucket returns 404 even when it exists. Terraform handles this via
+`google_firebase_storage_bucket` in `infra/terraform/storage.tf`; if
+bootstrapping by hand:
+
+```bash
+ACCESS_TOKEN=$(gcloud auth print-access-token)
+for ENV in staging prod; do
+  BUCKET="${PROJECT_ID}-sv-firebase-${ENV}"
+  curl -sS -X POST \
+    "https://firebasestorage.googleapis.com/v1beta/projects/${PROJECT_ID}/buckets/${BUCKET}:addFirebase" \
+    -H "Authorization: Bearer ${ACCESS_TOKEN}"
+done
+```
+
+Symptom when this step is missed: mobile uploads fail instantly with a
+generic "Upload failed" toast, no upload-progress events. Verify with:
+
+```bash
+gcloud storage buckets describe gs://${PROJECT_ID}-sv-firebase-staging \
+  --format='value(metadata.firebase)'
+```
+
+Non-empty output = registered.
 
 ---
 
