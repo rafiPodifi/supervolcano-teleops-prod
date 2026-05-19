@@ -14,6 +14,16 @@ const nextConfig = {
     serverActions: {
       allowedOrigins: ["*"],
     },
+    // gRPC + protobuf loaders use dynamic require() and __dirname-relative
+    // .proto files. Webpack bundling mangles those paths so unary calls
+    // fast-fail with empty status — surfaces as "undefined undefined: undefined".
+    // Keep them as runtime node_modules instead.
+    serverComponentsExternalPackages: [
+      "@google-cloud/video-intelligence",
+      "@grpc/grpc-js",
+      "@grpc/proto-loader",
+      "google-gax",
+    ],
   },
   images: {
     remotePatterns: [
