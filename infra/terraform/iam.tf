@@ -21,6 +21,11 @@ locals {
     # setCustomUserClaims via tenantManager().authForTenant) requires the
     # identityplatform.admin role.
     "roles/identityplatform.admin",
+    # Lets Cloud Run SA attach this project as the quota/billing project on
+    # outbound Google API calls (e.g., Video Intelligence). Without this,
+    # @google-cloud/* gRPC calls can fast-fail with an empty status —
+    # surfacing as the opaque "undefined undefined: undefined" error.
+    "roles/serviceusage.serviceUsageConsumer",
     "roles/logging.logWriter",
     "roles/monitoring.metricWriter",
     "roles/cloudtrace.agent",
