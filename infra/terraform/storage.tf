@@ -83,3 +83,4 @@ resource "google_firebase_storage_bucket" "firebase" {
 
   depends_on = [google_project_service.apis]
 }
+

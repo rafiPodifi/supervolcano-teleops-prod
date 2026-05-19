@@ -221,8 +221,24 @@ class GoogleVideoAIService {
 
       return { success: true, annotations };
     } catch (error: any) {
-      console.error("[VideoAI] Annotation failed:", error.message);
-      return { success: false, error: error.message };
+      // gRPC errors often format as `${code} ${codeName}: ${details}`.
+      // When fields are missing, .message reads "undefined undefined: undefined" —
+      // so dump the whole error shape to logs and surface the most useful field.
+      console.error("[VideoAI] Annotation failed. Raw error:", {
+        message: error?.message,
+        code: error?.code,
+        details: error?.details,
+        statusDetails: error?.statusDetails,
+        metadata: error?.metadata,
+        stack: error?.stack,
+      });
+      const friendly =
+        error?.details ||
+        error?.statusDetails ||
+        (error?.code !== undefined ? `gRPC code ${error.code}` : null) ||
+        error?.message ||
+        "Unknown Video AI error";
+      return { success: false, error: friendly };
     }
   }
 
