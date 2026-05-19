@@ -17,7 +17,6 @@ Single-project, dual-env (staging + prod) infrastructure as code.
 - Identity Platform tenants (`staging`, `prod`)
 - Secret Manager entries (Postgres password populated; others empty for manual fill)
 - Cloud Run services (placeholder image; CI deploys real images)
-- Cloud Scheduler cron jobs (sync-sql daily, OIDC-authed to Cloud Run)
 
 ## Prerequisites
 

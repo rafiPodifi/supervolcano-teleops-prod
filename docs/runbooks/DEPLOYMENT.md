@@ -11,6 +11,7 @@
 Set these in Vercel Dashboard → Project Settings → Environment Variables:
 
 ### Firebase Client (Public)
+
 - `NEXT_PUBLIC_FIREBASE_API_KEY`
 - `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`
 - `NEXT_PUBLIC_FIREBASE_PROJECT_ID`
@@ -19,12 +20,14 @@ Set these in Vercel Dashboard → Project Settings → Environment Variables:
 - `NEXT_PUBLIC_FIREBASE_APP_ID`
 
 ### Firebase Admin (Server-only)
+
 - `FIREBASE_ADMIN_PROJECT_ID`
 - `FIREBASE_ADMIN_CLIENT_EMAIL`
 - `FIREBASE_ADMIN_PRIVATE_KEY` (keep `\n` characters!)
 - `FIRESTORE_DATABASE_ID` (optional, defaults to "default")
 
 ### Optional
+
 - `NEXT_PUBLIC_FIRESTORE_DEBUG` (set to "true" for debug logging)
 
 ## Deployment Methods
@@ -87,22 +90,26 @@ vercel --prod
 ## Post-Deployment
 
 ### 1. Verify Environment Variables
+
 - Check that all Firebase variables are set correctly
 - Test authentication flow
 - Verify Firestore connections
 
 ### 2. Update Firebase Allowed Domains
+
 - Go to Firebase Console → Authentication → Settings → Authorized domains
 - Add your Vercel domain: `your-project.vercel.app`
 - Add custom domain if configured
 
 ### 3. Test Onboarding Flow
+
 - Visit `/get-started` on your deployed site
 - Test signup flow
 - Verify video uploads work
 - Check Firestore writes
 
 ### 4. Monitor Builds
+
 - Check Vercel Dashboard → Deployments
 - Review build logs for errors
 - Monitor function execution times
@@ -110,21 +117,25 @@ vercel --prod
 ## Troubleshooting
 
 ### Build Fails
+
 - Check build logs in Vercel Dashboard
 - Verify all environment variables are set
 - Ensure `package.json` has correct build script
 
 ### Runtime Errors
+
 - Check Function Logs in Vercel Dashboard
 - Verify Firebase Admin credentials are correct
 - Ensure `FIREBASE_ADMIN_PRIVATE_KEY` has `\n` characters preserved
 
 ### Authentication Issues
+
 - Verify Firebase Auth domain is whitelisted
 - Check CORS settings in Firebase Console
 - Ensure API keys are correct
 
 ### Firestore Connection Issues
+
 - Verify `FIRESTORE_DATABASE_ID` is set correctly
 - Check Firestore security rules
 - Ensure service account has proper permissions
@@ -140,18 +151,9 @@ vercel --prod
    - Add custom domain to Firebase Authorized domains
    - Update any hardcoded URLs in code
 
-## Cron Jobs
-
-The project includes a cron job configured in `vercel.json`:
-- Path: `/api/cron/sync-sql`
-- Schedule: Daily at midnight UTC
-
-Ensure this endpoint is accessible and working.
-
 ## Security Notes
 
 - Never commit `.env.local` files
 - Use Vercel Environment Variables for secrets
 - Rotate Firebase Admin keys periodically
 - Review Firestore security rules before production
-

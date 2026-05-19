@@ -442,24 +442,10 @@ prod connection name, prod tenant, prod-\* secrets.
 
 ## Phase 7 — Cloud Scheduler (cron)
 
-```bash
-STAGING_URL=$(gcloud run services describe supervolcano-web-staging \
-  --region=$REGION --format="value(status.url)")
-
-# OIDC-authenticated scheduler invoking Cloud Run
-gcloud scheduler jobs create http sync-sql-staging \
-  --location=$REGION \
-  --schedule="0 0 * * *" \
-  --uri="${STAGING_URL}/api/cron/sync-sql" \
-  --http-method=POST \
-  --oidc-service-account-email="cr-staging@${PROJECT_ID}.iam.gserviceaccount.com" \
-  --oidc-token-audience="${STAGING_URL}"
-
-# Drive sync (15 min) — only if /functions/googleDriveSync needs HTTP trigger
-# Otherwise stays as a Firebase Functions scheduled function
-```
-
-Repeat for prod with prod URL + prod SA.
+No application cron jobs currently. The Firestore→Postgres sync was
+removed; the Video Intelligence pipeline writes to Postgres synchronously
+during admin approval. If a future cron is added, use OIDC-authenticated
+Cloud Scheduler invoking Cloud Run and verify the token on the receiver.
 
 ---
 

@@ -210,9 +210,9 @@ _Walk the `INFERRED` items in priority order (BLOCKING first). Promote each to `
 **Category:** TA
 **Priority:** CLARIFYING
 **Question:** Post-B.2-tail, `/api/cron/sync-sql` only syncs `robot_intelligence` (Firestore → Postgres). Is this sync valuable, or could `robot_intelligence` move to Firestore + a server-side query, dropping the cron entirely?
-**Answer:** Keep the sync. `robot_intelligence` is the search/index target for partner robot queries and benefits from SQL/GIN. Migrating it to Firestore would lose the query shape. The cron is now narrow but still load-bearing.
-**Confidence:** INFERRED
-**Source:** src/app/api/cron/sync-sql + firebaseToSQLSync service + inference
+**Answer:** Resolved 2026-05-19 — removed entirely. The `robot_intelligence` table and its consuming `/api/robot-intelligence` endpoint were stale (target table never re-provisioned after the 2026-05 schema redesign). The training corpus uses `training_videos` (Postgres) and is written synchronously by `processing-pipeline.service.ts` during admin approval. No cron sync needed.
+**Confidence:** CONFIRMED
+**Source:** Cleanup commit 2026-05-19 (`page.tsx`, `cron/sync-sql`, `firebase-to-sql-sync.service`, `/api/robot-intelligence`, `scheduler.tf` all removed)
 
 ---
 

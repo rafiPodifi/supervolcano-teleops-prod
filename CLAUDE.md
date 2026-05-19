@@ -114,7 +114,12 @@ The platform uses a dual-database architecture. **Never mix these:**
 | All human-facing endpoints (`/api/admin/*`, `/api/org/*`, `/api/mobile/*`, etc.) | **Firestore**  | `import { adminDb } from '@/lib/firebaseAdmin'` |
 | Robot endpoints only (`/api/robot/v1/*`)                                         | **PostgreSQL** | `import { sql } from '@/lib/db/postgres'`       |
 
-PostgreSQL is a read-only replica synced from Firestore via a scheduled job (`/api/cron/sync-sql`, runs daily). Never write to PostgreSQL from application code. Never query PostgreSQL from admin/org endpoints.
+PostgreSQL holds the curated robot training corpus (`training_videos`) and the
+AI processing queue (`video_processing_queue`). Application code writes to
+those tables directly from the admin Video Intelligence pipeline
+(`processing-pipeline.service.ts`) — no Firestore→Postgres sync job. Never
+write to PostgreSQL from outside that pipeline. Never query PostgreSQL from
+admin/org endpoints.
 
 ### Web Portals
 

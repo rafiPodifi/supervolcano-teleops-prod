@@ -11,7 +11,6 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import {
   Database,
-  RefreshCw,
   Plus,
   Sparkles,
   Video,
@@ -22,8 +21,6 @@ import {
   Edit,
   Trash2,
   X,
-  ChevronDown,
-  Settings,
   AlertTriangle,
   Film,
   GraduationCap,
@@ -61,10 +58,8 @@ export default function RobotIntelligencePage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showActionsMenu, setShowActionsMenu] = useState(false);
   const [filters, setFilters] = useState({
     taskType: "",
     humanVerified: undefined as boolean | undefined,
@@ -141,22 +136,6 @@ export default function RobotIntelligencePage() {
     } finally {
       setLoading(false);
     }
-  }
-
-  async function syncData() {
-    // Firestore is now the single source of truth for locations/jobs/tasks.
-    // The Firestore→Postgres sync was removed in the 2026-05 schema redesign.
-    alert(
-      "Sync no longer needed — Firestore is the source of truth for locations, jobs, and tasks.",
-    );
-  }
-
-  async function resetDatabase() {
-    // The "reset SQL replica" feature went away with the Postgres tables it
-    // targeted (jobs, tasks, media, locations all moved to Firestore).
-    alert(
-      "Reset no longer applicable — Postgres replica tables were removed in the 2026-05 redesign.",
-    );
   }
 
   async function handleDeleteTask(taskId: string) {
@@ -237,16 +216,6 @@ export default function RobotIntelligencePage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {/* Sync Button - Primary Action */}
-          <button
-            onClick={syncData}
-            disabled={syncing}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
-          >
-            <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
-            {syncing ? "Syncing..." : "Sync from Firestore"}
-          </button>
-          {/* Create Task Button */}
           <button
             onClick={() => setShowCreateModal(true)}
             className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
@@ -254,39 +223,6 @@ export default function RobotIntelligencePage() {
             <Plus className="h-4 w-4" />
             Create Task
           </button>
-          {/* Actions Dropdown */}
-          <div className="relative">
-            <button
-              onClick={() => setShowActionsMenu(!showActionsMenu)}
-              className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-[#2a2a2a] bg-white dark:bg-[#1f1f1f] text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-[#2a2a2a] transition-colors"
-            >
-              <Settings className="h-4 w-4" />
-              Actions
-              <ChevronDown className="h-4 w-4" />
-            </button>
-            {showActionsMenu && (
-              <>
-                <div
-                  className="fixed inset-0 z-10"
-                  onClick={() => setShowActionsMenu(false)}
-                />
-                <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-[#1f1f1f] border border-gray-200 dark:border-[#2a2a2a] rounded-lg shadow-lg z-20">
-                  <div className="py-1">
-                    <button
-                      onClick={() => {
-                        setShowActionsMenu(false);
-                        resetDatabase();
-                      }}
-                      className="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 flex items-center gap-2"
-                    >
-                      <AlertTriangle className="h-4 w-4" />
-                      Reset Database
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
         </div>
       </div>
 
@@ -744,7 +680,7 @@ function CreateTaskModal({
               )}
               {locations.length === 0 && !loadingLocations && (
                 <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
-                  No locations. Sync from Firestore first.
+                  No locations yet. Create one in the Locations page.
                 </p>
               )}
             </div>

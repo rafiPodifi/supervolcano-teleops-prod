@@ -8,8 +8,10 @@
 CREATE TABLE IF NOT EXISTS training_videos (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  -- Reference to source media (no FK yet; media table not provisioned)
-  source_media_id VARCHAR(255),
+  -- Reference to source media (no FK yet; media table not provisioned).
+  -- UNIQUE so the pipeline can use ON CONFLICT (source_media_id) DO UPDATE
+  -- when re-approving a media item.
+  source_media_id VARCHAR(255) UNIQUE,
 
   video_url TEXT NOT NULL,
   thumbnail_url TEXT,

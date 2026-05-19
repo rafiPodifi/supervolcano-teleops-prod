@@ -20,13 +20,16 @@ Powers the Robot Intelligence API (`/api/robot/v1/*`) only. Never written
 to from application code.
 
 - Driver: `@neondatabase/serverless` (HTTP + WebSocket, Neon-specific)
-- Wrapper: `src/lib/db/postgres.ts` exposes tagged template `sql\`...\``
-  and parameterized `sql.query(text, params)`
+- Wrapper: `src/lib/db/postgres.ts` exposes tagged template `sql\`...\``and parameterized`sql.query(text, params)`
 - Schema: hand-written `database/schema.sql` (canonical for fresh
-  bootstrap), versioned in Drizzle from Phase F onward.
-- Sync: `/api/cron/sync-sql` runs daily (defined in `vercel.json`),
-  driven by `src/services/firebase-to-sql-sync.service.ts`. Pulls from
-  Firestore, normalizes, upserts into Postgres.
+  bootstrap), versioned in Drizzle from Phase F onward. Per-phase
+  migrations under `scripts/sql/` (training_videos, video_processing_queue,
+  etc.).
+- Writes: only the Video Intelligence pipeline
+  (`src/lib/services/video-intelligence/processing-pipeline.service.ts`)
+  writes to Postgres, when admin approves a media item into the training
+  corpus. The Firestore→Postgres cron sync was removed; Firestore is the
+  source of truth for everything except the curated training corpus.
 
 ## Drizzle Kit (schema-only)
 
@@ -48,7 +51,7 @@ Repository code keeps using raw SQL via the `sql` template — Drizzle is
 
 ## Future GCP migration
 
-- Firestore stays — Firebase Firestore *is* GCP Firestore. SDK init
+- Firestore stays — Firebase Firestore _is_ GCP Firestore. SDK init
   changes from service-account JSON to ADC; no data migration.
 - PostgreSQL → Cloud SQL Postgres. `@neondatabase/serverless` swaps for
   `pg` Pool via Cloud SQL Auth Proxy. Public API of `postgres.ts`
