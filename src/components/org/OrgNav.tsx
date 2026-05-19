@@ -19,7 +19,10 @@ export function OrgNav() {
       <nav className="hidden w-56 flex-shrink-0 lg:block">
         <div className="space-y-2">
           {Array.from({ length: 4 }).map((_, index) => (
-            <div key={index} className="h-10 animate-pulse rounded-lg bg-neutral-100" />
+            <div
+              key={index}
+              className="h-10 animate-pulse rounded-lg bg-neutral-100"
+            />
           ))}
         </div>
       </nav>
@@ -27,18 +30,39 @@ export function OrgNav() {
   }
 
   const NAV_ITEMS = [
-    { label: isManager ? "Dashboard" : "Home", href: "/org/dashboard", icon: LayoutDashboard },
+    {
+      label: isManager ? "Dashboard" : "Home",
+      href: "/org/dashboard",
+      icon: LayoutDashboard,
+    },
     { label: "Locations", href: "/org/locations", icon: MapPin },
     ...(isManager ? [{ label: "Team", href: "/org/team", icon: Users }] : []),
-    { label: isManager ? "Task History" : "My Tasks", href: "/org/tasks", icon: ClipboardList },
+    {
+      label: isManager ? "Task History" : "My Tasks",
+      href: "/org/tasks",
+      icon: ClipboardList,
+    },
   ];
 
   return (
-    <nav role="navigation" aria-label="Organization" className="hidden w-56 flex-shrink-0 lg:block">
+    <nav
+      role="navigation"
+      aria-label="Organization"
+      className="hidden w-56 flex-shrink-0 lg:block"
+    >
       <ul className="space-y-1 text-sm">
         {NAV_ITEMS.map(({ label, href, icon: Icon }) => {
-          const isDashboard = href === "/org/dashboard";
-          const isActive = isDashboard ? pathname === "/org/dashboard" : pathname.startsWith(href);
+          // Longest-prefix match so a parent nav item doesn't stay active
+          // when the user is on a sibling that shares its prefix.
+          const matches = NAV_ITEMS.filter(
+            (item) =>
+              pathname === item.href || pathname.startsWith(item.href + "/"),
+          );
+          const longest = matches.length
+            ? matches.reduce((a, b) => (a.href.length >= b.href.length ? a : b))
+                .href
+            : null;
+          const isActive = longest === href;
 
           return (
             <li key={href}>
@@ -61,4 +85,3 @@ export function OrgNav() {
     </nav>
   );
 }
-
