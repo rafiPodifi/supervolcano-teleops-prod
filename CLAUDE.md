@@ -62,6 +62,27 @@ pnpm run eas:update          # OTA update to preview branch
 
 The mobile app uses a **custom dev client** (not plain Expo Go) because it includes the native `ExternalCamera` module. After dependency changes, rebuild the dev client.
 
+### Mobile data access (Critical)
+
+The mobile app must read human-facing data through **backend REST
+endpoints** (Admin SDK, bypasses security rules) — not direct client-SDK
+Firestore queries. Firestore rules are **not filters**: a client `getDocs`
+collection query is rejected wholesale unless its `where` clauses provably
+satisfy the rule for every matching document. A rule keyed on a field the
+query does not constrain (e.g. `tasks` keyed on `partnerOrgId`, queried by
+`locationId`) yields `permission-denied`. Add new mobile reads as routes
+under `src/app/api/mobile/` (verify token, check assignment, then query
+with `adminDb`). Single-document `getDoc` reads are fine if the rule allows
+them.
+
+### Mobile error copy
+
+`mobile-app/src/utils/user-facing-error.ts` keyword-classifies error
+messages into friendly copy: a message containing `fetch`/`network`/
+`offline` becomes "No internet"; `permission`/`denied` becomes "Permission
+needed". Do **not** use those words in unrelated error messages, or they
+will be misclassified.
+
 ---
 
 ## Architecture
@@ -103,6 +124,35 @@ Six roles across two business models:
 - `location_cleaner` — mobile-only field worker
 
 Permission enforcement is centralised in `src/lib/auth/permissions.ts`. Use `requirePermission(user, 'PERMISSION_NAME')` in API routes to enforce access. All GET endpoints filter data based on role — see `docs/architecture/ARCHITECTURE.md` for the role-scoping patterns.
+
+### Tenant-scoped Auth operations (Critical)
+
+The project uses Identity Platform **multi-tenancy** — users live inside a
+tenant's user pool (`staging-*` / `prod-*`), not the project-level pool.
+
+- The root `adminAuth` from `firebaseAdmin.ts` is **only** safe for
+  `verifyIdToken` (token verification is tenant-agnostic).
+- **Every** user-pool operation — `getUser`, `createUser`,
+  `setCustomUserClaims`, `updateUser`, `deleteUser` — must go through
+  `authForTenant(tenantId)` (`src/lib/auth/tenantAuth.ts`), where
+  `tenantId = decodedToken.firebase.tenant` from the caller's verified
+  token. Root `adminAuth` against a tenant user returns
+  `auth/user-not-found` → surfaces as a 500.
+- `adminDb` (Firestore) has no tenant concept — never scope it.
+
+### User identity is dual-stored
+
+Each user exists in **two** places that can drift apart:
+
+- Identity Platform record — custom claims `role`, `organizationId`,
+  `partnerId`, `teleoperatorId` (carried on the ID token).
+- Firestore `users/{uid}` document — profile (`role`, `displayName`,
+  `organizationId`, timestamps).
+
+Some API routes read role from the token claims, others from the Firestore
+`users` doc — check which before relying on it. The admin user editor
+(`/api/admin/users/[id]`) has an explicit sync strategy and
+`calculateSyncStatus` flags mismatches.
 
 ### Web Data Layer
 
