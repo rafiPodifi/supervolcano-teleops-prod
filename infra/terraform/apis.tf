@@ -23,6 +23,7 @@ locals {
     "compute.googleapis.com",
     "firebaserules.googleapis.com",
     "firebasestorage.googleapis.com",
+    "videointelligence.googleapis.com",
   ]
 }
 
