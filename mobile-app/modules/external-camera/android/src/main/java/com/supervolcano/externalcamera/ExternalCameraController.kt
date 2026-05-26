@@ -135,7 +135,8 @@ class ExternalCameraController private constructor(
 
     val finalPath = if (outputPath.endsWith(".mp4")) outputPath else "$outputPath.mp4"
     val outFile = File(finalPath).also { it.parentFile?.mkdirs() }
-    val enableAudio = (options["enableAudio"] as? Boolean) ?: true
+    // Audio capture permanently disabled: training corpus does not need audio.
+    val enableAudio = false
     val fps = pickFps(profile)
 
     val callback = object : UvcBackend.RecordingCallback {

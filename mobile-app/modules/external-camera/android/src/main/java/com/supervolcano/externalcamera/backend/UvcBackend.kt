@@ -73,6 +73,9 @@ class UvcBackend(
     Log.d(TAG, "init: creating CameraHelper")
     cameraHelper = CameraHelper().also { helper ->
       helper.setStateCallback(this)
+      // Permanently disable audio capture: training corpus does not need audio.
+      val audioOffConfig = helper.getVideoCaptureConfig().setAudioCaptureEnable(false)
+      helper.setVideoCaptureConfig(audioOffConfig)
     }
   }
 
@@ -262,6 +265,8 @@ class UvcBackend(
       "startRecording file=${file.absolutePath} audio=$audioEnabled fps=$fps " +
         "isCameraOpened=${helper.isCameraOpened} isRecordingBefore=${helper.isRecording}"
     )
+    // Audio capture is permanently disabled via init() — audioEnabled flag retained
+    // for log parity but no per-recording config mutation.
     val options = VideoCapture.OutputFileOptions.Builder(file).build()
     helper.startRecording(options, object : VideoCapture.OnVideoCaptureCallback {
       override fun onStart() {

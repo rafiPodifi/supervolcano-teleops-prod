@@ -1,9 +1,7 @@
 /**
- * CAMERA SCREEN - Cross-Platform with Offline Support
+ * CAMERA SCREEN - External UVC camera only, audio disabled.
  * Used by CleanerNavigator (location_cleaner role).
- * Continuous recording with background segment uploads
- * Videos persist locally until confirmed uploaded
- * Uses react-native-vision-camera for physical lens selection
+ * Continuous segmented recording with background uploads.
  */
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
@@ -23,27 +21,14 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BlurView } from "expo-blur";
-import {
-  Camera,
-  useCameraDevice,
-  useCameraPermission,
-  useMicrophonePermission,
-  VideoFile,
-} from "react-native-vision-camera";
+import { useCameraPermission } from "react-native-vision-camera";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/contexts/AuthContext";
 import { UploadQueueService } from "@/services/upload-queue.service";
 import { useUploadQueue } from "@/hooks/useUploadQueue";
 import { Toast } from "@/components/Toast";
-import CameraModeToggle, {
-  CameraMode,
-} from "@/components/external-camera/CameraModeToggle";
 import ExternalCameraPanel from "@/components/external-camera/ExternalCameraPanel";
-import {
-  getExternalCameraDisplayState,
-  isDefinitiveFailureState,
-  isGenericStatusMessage,
-} from "@/components/external-camera/external-camera-display";
+import { getExternalCameraDisplayState } from "@/components/external-camera/external-camera-display";
 import ExternalCameraView from "@/components/external-camera/ExternalCameraView";
 import { useToast } from "@/hooks/useToast";
 import { useExternalCameraDiagnostics } from "@/hooks/useExternalCameraDiagnostics";
@@ -54,10 +39,6 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as Haptics from "expo-haptics";
 
 const SEGMENT_DURATION = 300; // 5 minutes in seconds
-const MODE_SWITCH_TIMEOUT_MS = 25000;
-const MODE_SWITCH_CANCEL_REVEAL_MS = 5000;
-
-type LensType = "ultra-wide" | "wide" | "telephoto";
 
 export default function CameraScreen({ route, navigation }: any) {
   const params = route.params || {};
@@ -70,69 +51,21 @@ export default function CameraScreen({ route, navigation }: any) {
   const jobTitle = params.jobTitle ?? params.job?.title ?? "Recording";
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
-  const cameraRef = useRef<Camera>(null);
 
   // Permissions
   const {
     hasPermission: hasCameraPermission,
     requestPermission: requestCameraPermission,
   } = useCameraPermission();
-  const {
-    hasPermission: hasMicPermission,
-    requestPermission: requestMicPermission,
-  } = useMicrophonePermission();
 
-  // Lens selection state - default to ultra-wide
-  const [selectedLens, setSelectedLens] = useState<LensType>("wide");
-  const [cameraMode, setCameraMode] = useState<CameraMode>("native");
-  const [isModeTransitioning, setIsModeTransitioning] = useState(false);
-  const [isCancelAvailable, setIsCancelAvailable] = useState(false);
-  const [nativeCameraMountKey, setNativeCameraMountKey] = useState(0);
   const externalCamera = useExternalCameraDiagnostics();
-  const isExternalMode = cameraMode === "external";
-  const isExternalReady = isExternalMode && externalCamera.isReady;
-  const isNativeCameraActive = cameraMode === "native";
-  const showExternalToggle = externalCamera.isSupported;
-  const isExternalModeRef = useRef(isExternalMode);
+  const isExternalReady = externalCamera.isReady;
   const cameraPermissionStatus =
     hasCameraPermission === null
       ? "unknown"
       : hasCameraPermission
         ? "granted"
         : "denied";
-
-  // Get a device that supports all physical lenses for smooth switching
-  const device = useCameraDevice("back", {
-    physicalDevices: [
-      "ultra-wide-angle-camera",
-      "wide-angle-camera",
-      "telephoto-camera",
-    ],
-  });
-
-  // Track which lenses are available on this device
-  const availableLenses = {
-    "ultra-wide":
-      device?.physicalDevices?.includes("ultra-wide-angle-camera") ?? false,
-    wide: device?.physicalDevices?.includes("wide-angle-camera") ?? true,
-    telephoto: device?.physicalDevices?.includes("telephoto-camera") ?? false,
-  };
-
-  // Calculate zoom based on selected lens
-  const getZoomForLens = useCallback((lens: LensType): number => {
-    switch (lens) {
-      case "ultra-wide":
-        return 0.5; // 0.5x zoom triggers ultra-wide lens
-      case "wide":
-        return 1.0; // 1x is standard wide
-      case "telephoto":
-        return 2.0; // 2x for telephoto
-      default:
-        return 0.5;
-    }
-  }, []);
-
-  const currentZoom = getZoomForLens(selectedLens);
 
   // Upload queue status
   const uploadQueue = useUploadQueue();
@@ -156,12 +89,9 @@ export default function CameraScreen({ route, navigation }: any) {
   const sessionActiveRef = useRef(false);
   const segmentTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const appState = useRef(AppState.currentState);
-  const shouldResumeSessionRef = useRef(false);
-  const shouldReturnAfterStopRef = useRef(false);
   const currentSegmentRef = useRef<{
     segmentNumber: number;
     startedAt: string;
-    cameraMode: "external" | "native";
   } | null>(null);
   const segmentCounterRef = useRef(0);
   const startRecordingSegmentRef = useRef<(() => Promise<void>) | null>(null);
@@ -174,30 +104,15 @@ export default function CameraScreen({ route, navigation }: any) {
   const externalQueuedConfirmationTimeoutRef = useRef<NodeJS.Timeout | null>(
     null,
   );
-  const modeSwitchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const modeSwitchCancelRevealRef = useRef<NodeJS.Timeout | null>(null);
-  const pendingTargetModeRef = useRef<CameraMode | null>(null);
-  const previousModeRef = useRef<CameraMode>("native");
-  const externalCameraStatusMessageRef = useRef<string>(
-    externalCamera.statusMessage,
-  );
-
-  useEffect(() => {
-    isExternalModeRef.current = isExternalMode;
-  }, [isExternalMode]);
-
-  useEffect(() => {
-    externalCameraStatusMessageRef.current = externalCamera.statusMessage;
-  }, [externalCamera.statusMessage]);
 
   useEffect(() => {
     if (!ExternalCamera.isSupported) {
       return;
     }
 
-    ExternalCamera.setExternalModeEnabled(false).catch((error) => {
+    ExternalCamera.setExternalModeEnabled(true).catch((error) => {
       console.warn(
-        "[ExternalCamera] Failed to reset external mode on mount",
+        "[ExternalCamera] Failed to enable external mode on mount",
         error,
       );
     });
@@ -459,10 +374,7 @@ export default function CameraScreen({ route, navigation }: any) {
     return promise;
   }, [rejectExternalFinalizeWait]);
 
-  async function queueCompletedSegment(
-    videoUri: string,
-    cameraMode: "external" | "native",
-  ): Promise<boolean> {
+  async function queueCompletedSegment(videoUri: string): Promise<boolean> {
     const segment = currentSegmentRef.current;
 
     if (
@@ -472,21 +384,19 @@ export default function CameraScreen({ route, navigation }: any) {
       (!isGenericRecording && (!locationId || !jobId))
     ) {
       console.warn("[Camera] Missing job or segment metadata, skipping queue");
-      if (cameraMode === "external") {
-        UploadQueueService.logDebug(
-          "error",
-          "External recording could not be queued because segment metadata was missing",
-          JSON.stringify({
-            hasVideoUri: !!videoUri,
-            hasUser: !!user,
-            hasSegment: !!segment,
-            hasLocationId: !!locationId,
-            hasJobId: !!jobId,
-            isGenericRecording,
-          }),
-          "failed",
-        );
-      }
+      UploadQueueService.logDebug(
+        "error",
+        "External recording could not be queued because segment metadata was missing",
+        JSON.stringify({
+          hasVideoUri: !!videoUri,
+          hasUser: !!user,
+          hasSegment: !!segment,
+          hasLocationId: !!locationId,
+          hasJobId: !!jobId,
+          isGenericRecording,
+        }),
+        "failed",
+      );
       return false;
     }
 
@@ -504,24 +414,20 @@ export default function CameraScreen({ route, navigation }: any) {
         endedAt: new Date().toISOString(),
         recordingMode: isGenericRecording ? "generic" : "assigned",
       });
-      if (cameraMode === "external") {
-        UploadQueueService.logDebug(
-          "info",
-          "External recording segment queued successfully",
-          videoUri,
-          "queued",
-        );
-      }
+      UploadQueueService.logDebug(
+        "info",
+        "External recording segment queued successfully",
+        videoUri,
+        "queued",
+      );
     } catch (error) {
       console.error("[Camera] Failed to queue segment:", error);
-      if (cameraMode === "external") {
-        UploadQueueService.logDebug(
-          "error",
-          "External recording segment failed to enter upload queue",
-          String(error),
-          "failed",
-        );
-      }
+      UploadQueueService.logDebug(
+        "error",
+        "External recording segment failed to enter upload queue",
+        String(error),
+        "failed",
+      );
       const friendly = getFriendlyErrorCopy(error, "queue");
       Alert.alert(friendly.title, friendly.message);
       return false;
@@ -530,49 +436,10 @@ export default function CameraScreen({ route, navigation }: any) {
     if (sessionActiveRef.current) {
       console.log("[Camera] Starting next segment...");
       await startRecordingSegmentRef.current?.();
-    } else if (isGenericRecording && shouldReturnAfterStopRef.current) {
-      shouldReturnAfterStopRef.current = false;
-      navigation.goBack();
     }
 
     return true;
   }
-
-  // Handle recording stopped callback
-  const onRecordingFinished = useCallback(
-    async (video: VideoFile) => {
-      console.log("[Camera] Segment complete:", video.path);
-      setIsRecording(false);
-      if (segmentTimeoutRef.current) {
-        clearTimeout(segmentTimeoutRef.current);
-        segmentTimeoutRef.current = null;
-      }
-      if (video?.path && user) {
-        // Convert path to file:// URI if needed
-        const videoUri = video.path.startsWith("file://")
-          ? video.path
-          : `file://${video.path}`;
-
-        await queueCompletedSegment(videoUri, "native");
-      }
-    },
-    [user],
-  );
-
-  const onRecordingError = useCallback((error: any) => {
-    console.error("[Camera] Recording error:", error);
-    setIsRecording(false);
-    if (segmentTimeoutRef.current) {
-      clearTimeout(segmentTimeoutRef.current);
-      segmentTimeoutRef.current = null;
-    }
-    currentSegmentRef.current = null;
-    segmentCounterRef.current = Math.max(0, segmentCounterRef.current - 1);
-    // If session active, try to recover
-    if (sessionActiveRef.current) {
-      setTimeout(() => startRecordingSegment(), 1000);
-    }
-  }, []);
 
   const startExternalRecordingSegment = useCallback(async () => {
     if (!ExternalCamera.isSupported || !sessionActiveRef.current) {
@@ -655,7 +522,7 @@ export default function CameraScreen({ route, navigation }: any) {
             }),
             "queued",
           );
-          const queued = await queueCompletedSegment(videoUri, "external");
+          const queued = await queueCompletedSegment(videoUri);
           if (queued) {
             if (!sessionActiveRef.current) {
               showQueuedConfirmation();
@@ -715,10 +582,6 @@ export default function CameraScreen({ route, navigation }: any) {
     }
 
     const subscription = ExternalCamera.addRecordingStateListener((event) => {
-      if (!isExternalModeRef.current) {
-        return;
-      }
-
       if (event.state === "finalized" && event.filePath) {
         handleExternalRecordingFinished(event.filePath);
         return;
@@ -742,44 +605,10 @@ export default function CameraScreen({ route, navigation }: any) {
     currentSegmentRef.current = {
       segmentNumber: segmentCounterRef.current,
       startedAt: new Date().toISOString(),
-      cameraMode: isExternalModeRef.current ? "external" : "native",
     };
 
-    if (isExternalModeRef.current) {
-      await startExternalRecordingSegment();
-      return;
-    }
-
-    if (!cameraRef.current) return;
-
-    try {
-      setIsRecording(true);
-      console.log("[Camera] Recording segment...");
-
-      cameraRef.current.startRecording({
-        onRecordingFinished,
-        onRecordingError,
-        fileType: "mp4",
-        videoCodec: "h264",
-      });
-
-      // Stop after segment duration
-      segmentTimeoutRef.current = setTimeout(() => {
-        if (cameraRef.current && sessionActiveRef.current) {
-          console.log("[Camera] Segment duration reached, stopping...");
-          cameraRef.current.stopRecording();
-        }
-      }, SEGMENT_DURATION * 1000);
-    } catch (error: any) {
-      console.error("[Camera] Start recording error:", error);
-      setIsRecording(false);
-      currentSegmentRef.current = null;
-      segmentCounterRef.current = Math.max(0, segmentCounterRef.current - 1);
-      if (sessionActiveRef.current) {
-        setTimeout(() => startRecordingSegment(), 1000);
-      }
-    }
-  }, [onRecordingFinished, onRecordingError, startExternalRecordingSegment]);
+    await startExternalRecordingSegment();
+  }, [startExternalRecordingSegment]);
 
   useEffect(() => {
     startRecordingSegmentRef.current = startRecordingSegment;
@@ -799,7 +628,6 @@ export default function CameraScreen({ route, navigation }: any) {
     try {
       currentSegmentRef.current = null;
       segmentCounterRef.current = 0;
-      shouldReturnAfterStopRef.current = false;
 
       setIsSessionActive(true);
       sessionActiveRef.current = true;
@@ -821,50 +649,40 @@ export default function CameraScreen({ route, navigation }: any) {
     console.log("[Camera] Stopping session...");
     setIsSessionActive(false);
     sessionActiveRef.current = false;
-    shouldReturnAfterStopRef.current = isGenericRecording;
 
     if (segmentTimeoutRef.current) {
       clearTimeout(segmentTimeoutRef.current);
       segmentTimeoutRef.current = null;
     }
 
-    if (isExternalModeRef.current) {
-      const shouldWaitForFinalize = isRecording || !!currentSegmentRef.current;
-      const finalizePromise = shouldWaitForFinalize
-        ? ensureExternalFinalizeWait()
-        : null;
-      UploadQueueService.logDebug(
-        "info",
-        "External recording stop requested",
-        shouldWaitForFinalize
-          ? "Awaiting finalize before leaving camera screen"
-          : undefined,
-      );
-      try {
-        await ExternalCamera.stopRecording();
-        if (finalizePromise) {
-          await finalizePromise;
-        }
-      } catch (error) {
-        console.warn("[ExternalCamera] Stop recording error:", error);
-        clearExternalFinalizeWait();
-        throw error;
+    const shouldWaitForFinalize = isRecording || !!currentSegmentRef.current;
+    const finalizePromise = shouldWaitForFinalize
+      ? ensureExternalFinalizeWait()
+      : null;
+    UploadQueueService.logDebug(
+      "info",
+      "External recording stop requested",
+      shouldWaitForFinalize
+        ? "Awaiting finalize before leaving camera screen"
+        : undefined,
+    );
+    try {
+      await ExternalCamera.stopRecording();
+      if (finalizePromise) {
+        await finalizePromise;
       }
-    } else if (cameraRef.current && isRecording) {
-      await cameraRef.current.stopRecording();
+    } catch (error) {
+      console.warn("[ExternalCamera] Stop recording error:", error);
+      clearExternalFinalizeWait();
+      throw error;
     }
 
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  }, [
-    clearExternalFinalizeWait,
-    ensureExternalFinalizeWait,
-    isGenericRecording,
-    isRecording,
-  ]);
+  }, [clearExternalFinalizeWait, ensureExternalFinalizeWait, isRecording]);
 
   // Handle record button press
   const handleRecordPress = () => {
-    if (isModeTransitioning || isFinishingExternalRecording) {
+    if (isFinishingExternalRecording) {
       return;
     }
     if (isSessionActive) {
@@ -874,7 +692,7 @@ export default function CameraScreen({ route, navigation }: any) {
       });
       return;
     }
-    if (isExternalMode && !isExternalReady) {
+    if (!isExternalReady) {
       Alert.alert("External Camera", externalCamera.statusMessage);
       return;
     }
@@ -922,234 +740,11 @@ export default function CameraScreen({ route, navigation }: any) {
     }
   };
 
-  // Handle lens change
-  const handleLensChange = (lens: LensType) => {
-    if (availableLenses[lens]) {
-      setSelectedLens(lens);
-      Haptics.selectionAsync();
-    }
-  };
-
-  const clearModeSwitchTimers = useCallback(() => {
-    if (modeSwitchTimeoutRef.current) {
-      clearTimeout(modeSwitchTimeoutRef.current);
-      modeSwitchTimeoutRef.current = null;
-    }
-    if (modeSwitchCancelRevealRef.current) {
-      clearTimeout(modeSwitchCancelRevealRef.current);
-      modeSwitchCancelRevealRef.current = null;
-    }
-  }, []);
-
-  const endModeTransition = useCallback(() => {
-    clearModeSwitchTimers();
-    pendingTargetModeRef.current = null;
-    setIsCancelAvailable(false);
-    setIsModeTransitioning(false);
-  }, [clearModeSwitchTimers]);
-
-  const revertToPreviousMode = useCallback(() => {
-    const previousMode = previousModeRef.current;
-    if (previousMode === "native") {
-      setNativeCameraMountKey((currentKey) => currentKey + 1);
-    }
-    setCameraMode(previousMode);
-    if (ExternalCamera.isSupported) {
-      ExternalCamera.setExternalModeEnabled(previousMode === "external").catch(
-        (error) => {
-          console.warn("[ExternalCamera] Mode revert failed", error);
-        },
-      );
-    }
-  }, []);
-
-  const handleCameraModeChange = useCallback(
-    (mode: CameraMode) => {
-      if (
-        mode === cameraMode ||
-        isModeTransitioning ||
-        isSessionActive ||
-        isRecording
-      ) {
-        return;
-      }
-
-      previousModeRef.current = cameraMode;
-      pendingTargetModeRef.current = mode;
-      setIsCancelAvailable(false);
-      setIsModeTransitioning(true);
-
-      modeSwitchCancelRevealRef.current = setTimeout(() => {
-        setIsCancelAvailable(true);
-      }, MODE_SWITCH_CANCEL_REVEAL_MS);
-
-      modeSwitchTimeoutRef.current = setTimeout(() => {
-        if (pendingTargetModeRef.current !== mode) {
-          return;
-        }
-        const targetMode = mode;
-        revertToPreviousMode();
-        endModeTransition();
-        const fallback = getFriendlyErrorCopy(
-          new Error("mode switch timeout"),
-          "camera",
-        );
-        const nativeMessage = externalCameraStatusMessageRef.current;
-        const message = isGenericStatusMessage(nativeMessage)
-          ? fallback.message
-          : nativeMessage;
-        Alert.alert(fallback.title, message, [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Try again",
-            onPress: () => handleCameraModeChange(targetMode),
-          },
-        ]);
-      }, MODE_SWITCH_TIMEOUT_MS);
-
-      if (mode === "external") {
-        setCameraMode(mode);
-        if (ExternalCamera.isSupported) {
-          ExternalCamera.setExternalModeEnabled(true)
-            .then(() => externalCamera.refresh())
-            .catch((error) => {
-              if (pendingTargetModeRef.current !== mode) {
-                return;
-              }
-              console.warn("[ExternalCamera] Mode switch failed", error);
-              revertToPreviousMode();
-              endModeTransition();
-              const copy = getFriendlyErrorCopy(error, "camera");
-              Alert.alert(copy.title, copy.message, [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Try again",
-                  onPress: () => handleCameraModeChange(mode),
-                },
-              ]);
-            });
-        } else {
-          endModeTransition();
-        }
-      } else {
-        setNativeCameraMountKey((currentKey) => currentKey + 1);
-        setCameraMode(mode);
-        if (ExternalCamera.isSupported) {
-          ExternalCamera.setExternalModeEnabled(false)
-            .then(() => {
-              externalCamera.refresh();
-              if (pendingTargetModeRef.current === mode) {
-                endModeTransition();
-              }
-            })
-            .catch((error) => {
-              if (pendingTargetModeRef.current !== mode) {
-                return;
-              }
-              console.warn("[ExternalCamera] Mode switch failed", error);
-              revertToPreviousMode();
-              endModeTransition();
-              const copy = getFriendlyErrorCopy(error, "camera");
-              Alert.alert(copy.title, copy.message, [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Try again",
-                  onPress: () => handleCameraModeChange(mode),
-                },
-              ]);
-            });
-        } else {
-          endModeTransition();
-        }
-      }
-    },
-    [
-      cameraMode,
-      isModeTransitioning,
-      isSessionActive,
-      isRecording,
-      externalCamera,
-      revertToPreviousMode,
-      endModeTransition,
-    ],
-  );
-
-  const handleCancelModeSwitch = useCallback(() => {
-    if (!isModeTransitioning) {
-      return;
-    }
-    revertToPreviousMode();
-    endModeTransition();
-  }, [isModeTransitioning, revertToPreviousMode, endModeTransition]);
-
   useEffect(() => {
-    if (!isModeTransitioning) {
-      return;
-    }
-    if (pendingTargetModeRef.current !== "external") {
-      return;
-    }
-    if (cameraMode !== "external") {
-      return;
-    }
-    if (externalCamera.isReady) {
-      endModeTransition();
-      return;
-    }
-    if (isDefinitiveFailureState(externalCamera.supportState)) {
-      revertToPreviousMode();
-      endModeTransition();
-      const fallback = getFriendlyErrorCopy(
-        new Error("camera unavailable"),
-        "camera",
-      );
-      const nativeMessage = externalCamera.statusMessage;
-      Alert.alert(
-        fallback.title,
-        isGenericStatusMessage(nativeMessage)
-          ? fallback.message
-          : nativeMessage,
-        [{ text: "OK", style: "cancel" }],
-      );
-    }
-  }, [
-    isModeTransitioning,
-    cameraMode,
-    externalCamera.isReady,
-    externalCamera.supportState,
-    externalCamera.statusMessage,
-    endModeTransition,
-    revertToPreviousMode,
-  ]);
-
-  useEffect(() => {
-    return () => {
-      clearModeSwitchTimers();
-    };
-  }, [clearModeSwitchTimers]);
-
-  useEffect(() => {
-    if (!shouldResumeSessionRef.current) {
-      return;
-    }
-
-    if (isModeTransitioning) {
-      return;
-    }
-
-    if (cameraMode === "external" && !isExternalReady) {
-      return;
-    }
-
-    shouldResumeSessionRef.current = false;
-    startSession();
-  }, [cameraMode, isExternalReady, isModeTransitioning, startSession]);
-
-  useEffect(() => {
-    if (!isExternalMode || isSessionActive) {
+    if (!isSessionActive) {
       setShowExternalQueuedConfirmation(false);
     }
-  }, [isExternalMode, isSessionActive]);
+  }, [isSessionActive]);
 
   const externalDisplay = getExternalCameraDisplayState({
     supportState: externalCamera.supportState,
@@ -1158,26 +753,19 @@ export default function CameraScreen({ route, navigation }: any) {
     statusMessage: externalCamera.statusMessage,
     hasLivePreview: externalCamera.hasLivePreview,
     recordingActive: isSessionActive,
-    isModeTransitioning,
+    isModeTransitioning: false,
     isFinishingRecording: isFinishingExternalRecording,
     showQueuedConfirmation: showExternalQueuedConfirmation,
   });
 
   // Get status message
   const getStatusMessage = (): string => {
-    if (isModeTransitioning) {
-      return "Switching camera...";
-    }
-
-    if (isExternalMode) {
-      return externalDisplay.footerMessage;
+    if (externalCamera.isConnectionTimedOut) {
+      return "Camera couldn't connect. Try unplugging and reconnecting.";
     }
 
     if (isSessionActive) {
-      if (segmentsRecorded === 0) {
-        return "Recording...";
-      }
-      return `${segmentsRecorded} segment${segmentsRecorded > 1 ? "s" : ""} saved`;
+      return externalDisplay.footerMessage;
     }
 
     if (uploadQueue.total > 0) {
@@ -1193,21 +781,7 @@ export default function CameraScreen({ route, navigation }: any) {
       return `${uploadQueue.pending} pending upload${uploadQueue.pending > 1 ? "s" : ""}`;
     }
 
-    return isGenericRecording
-      ? "Tap to start generic recording"
-      : "Tap to start recording";
-  };
-
-  // Get lens display text
-  const getLensDisplayText = (lens: LensType): string => {
-    switch (lens) {
-      case "ultra-wide":
-        return ".5";
-      case "wide":
-        return "1x";
-      case "telephoto":
-        return "2x";
-    }
+    return externalDisplay.footerMessage;
   };
 
   // Header pill component
@@ -1226,15 +800,8 @@ export default function CameraScreen({ route, navigation }: any) {
     );
   };
 
-  // Request permissions
-  const requestPermissions = async () => {
-    const cameraGranted = await requestCameraPermission();
-    const micGranted = await requestMicPermission();
-    return cameraGranted && micGranted;
-  };
-
   // Permission not yet determined
-  if (hasCameraPermission === null || hasMicPermission === null) {
+  if (hasCameraPermission === null) {
     return (
       <View style={styles.centerContainer}>
         <StatusBar
@@ -1248,7 +815,7 @@ export default function CameraScreen({ route, navigation }: any) {
   }
 
   // Permission denied
-  if (!hasCameraPermission || !hasMicPermission) {
+  if (!hasCameraPermission) {
     return (
       <View style={[styles.permissionContainer, { paddingTop: insets.top }]}>
         <StatusBar
@@ -1259,10 +826,10 @@ export default function CameraScreen({ route, navigation }: any) {
         <Ionicons name="camera-outline" size={64} color="#666" />
         <Text style={styles.permissionTitle}>Camera Access Needed</Text>
         <Text style={styles.permissionText}>
-          We need camera and microphone access to record your session.
+          We need camera access to record your session.
         </Text>
         <TouchableOpacity
-          onPress={requestPermissions}
+          onPress={requestCameraPermission}
           style={styles.permissionButton}
           activeOpacity={0.8}
         >
@@ -1274,30 +841,6 @@ export default function CameraScreen({ route, navigation }: any) {
         >
           <Text style={styles.backLinkText}>Open Settings</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={styles.backLink}
-        >
-          <Text style={styles.backLinkText}>Go Back</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  // No camera device available
-  if (!device) {
-    return (
-      <View style={[styles.permissionContainer, { paddingTop: insets.top }]}>
-        <StatusBar
-          barStyle="light-content"
-          backgroundColor="transparent"
-          translucent
-        />
-        <Ionicons name="camera-outline" size={64} color="#666" />
-        <Text style={styles.permissionTitle}>No Camera Found</Text>
-        <Text style={styles.permissionText}>
-          Unable to access camera device.
-        </Text>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
           style={styles.backLink}
@@ -1351,43 +894,30 @@ export default function CameraScreen({ route, navigation }: any) {
         onHide={hideToast}
       />
 
-      {/* Full-screen camera */}
-      {isExternalMode && showExternalToggle ? (
-        <View style={StyleSheet.absoluteFill}>
-          <ExternalCameraPanel
-            cameraPermissionStatus={cameraPermissionStatus}
-            usbDeviceDetected={externalCamera.attachedUsbVideoDeviceCount > 0}
-            connectionTestStatus={externalDisplay.connectionTestStatus}
-            connectionLabel={externalDisplay.connectionLabel}
-            connectionHelperText={externalDisplay.connectionHelperText}
-            showRetryAction={externalDisplay.showRetryAction}
-            simulationControls={externalCamera.simulationControls}
-            onOpenSettings={externalCamera.openSettings}
-            onRetry={externalCamera.retryPreview}
-            preview={
-              !externalCamera.isSimulated ? (
-                <ExternalCameraView style={StyleSheet.absoluteFill} />
-              ) : undefined
-            }
-            showPreviewPlaceholder={externalDisplay.showPreviewPlaceholder}
-            style={{
-              paddingTop: insets.top + 120,
-              paddingBottom: insets.bottom + 160,
-            }}
-          />
-        </View>
-      ) : (
-        <Camera
-          key={`native-camera-${nativeCameraMountKey}`}
-          ref={cameraRef}
-          style={StyleSheet.absoluteFill}
-          device={device}
-          isActive={isNativeCameraActive}
-          video={true}
-          audio={true}
-          zoom={currentZoom}
+      {/* Full-screen external camera preview */}
+      <View style={StyleSheet.absoluteFill}>
+        <ExternalCameraPanel
+          cameraPermissionStatus={cameraPermissionStatus}
+          usbDeviceDetected={externalCamera.attachedUsbVideoDeviceCount > 0}
+          connectionTestStatus={externalDisplay.connectionTestStatus}
+          connectionLabel={externalDisplay.connectionLabel}
+          connectionHelperText={externalDisplay.connectionHelperText}
+          showRetryAction={externalDisplay.showRetryAction}
+          simulationControls={externalCamera.simulationControls}
+          onOpenSettings={externalCamera.openSettings}
+          onRetry={externalCamera.retryPreview}
+          preview={
+            !externalCamera.isSimulated ? (
+              <ExternalCameraView style={StyleSheet.absoluteFill} />
+            ) : undefined
+          }
+          showPreviewPlaceholder={externalDisplay.showPreviewPlaceholder}
+          style={{
+            paddingTop: insets.top + 120,
+            paddingBottom: insets.bottom + 160,
+          }}
         />
-      )}
+      </View>
 
       {/* Top floating header */}
       <View style={[styles.topContainer, { top: insets.top + 10 }]}>
@@ -1435,49 +965,10 @@ export default function CameraScreen({ route, navigation }: any) {
             </TouchableOpacity>
           )}
         </HeaderPill>
-        {showExternalToggle && (
-          <View style={styles.modeToggleContainer}>
-            <CameraModeToggle
-              value={cameraMode}
-              onChange={handleCameraModeChange}
-              externalDisabled={!externalCamera.canSwitchToExternal}
-              disabled={isModeTransitioning || isSessionActive || isRecording}
-            />
-          </View>
-        )}
       </View>
 
       {/* Bottom floating controls */}
       <View style={[styles.bottomContainer, { bottom: insets.bottom + 30 }]}>
-        {/* Lens selector */}
-        {!isExternalMode && (
-          <View style={styles.lensSelector}>
-            {(["ultra-wide", "wide", "telephoto"] as LensType[]).map((lens) => (
-              <TouchableOpacity
-                key={lens}
-                onPress={() => handleLensChange(lens)}
-                style={[
-                  styles.lensButton,
-                  selectedLens === lens && styles.lensButtonActive,
-                  !availableLenses[lens] && styles.lensButtonDisabled,
-                ]}
-                activeOpacity={0.7}
-                disabled={!availableLenses[lens]}
-              >
-                <Text
-                  style={[
-                    styles.lensText,
-                    selectedLens === lens && styles.lensTextActive,
-                    !availableLenses[lens] && styles.lensTextDisabled,
-                  ]}
-                >
-                  {getLensDisplayText(lens)}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-
         {/* Timer display */}
         {isSessionActive && (
           <View style={styles.timerContainer}>
@@ -1490,9 +981,7 @@ export default function CameraScreen({ route, navigation }: any) {
           onPress={handleRecordPress}
           style={[
             styles.recordButtonOuter,
-            (isExternalMode && !isExternalReady) ||
-            isModeTransitioning ||
-            isFinishingExternalRecording
+            !isExternalReady || isFinishingExternalRecording
               ? styles.recordButtonDisabled
               : null,
           ]}
@@ -1519,9 +1008,7 @@ export default function CameraScreen({ route, navigation }: any) {
           activeOpacity={canOpenQueueDetails ? 0.7 : 1}
           disabled={!canOpenQueueDetails}
         >
-          {(isExternalMode
-            ? externalDisplay.showSpinner
-            : uploadQueue.isUploading) && (
+          {(externalDisplay.showSpinner || uploadQueue.isUploading) && (
             <ActivityIndicator
               size="small"
               color="rgba(255,255,255,0.8)"
@@ -1537,24 +1024,20 @@ export default function CameraScreen({ route, navigation }: any) {
             {getStatusMessage()}
           </Text>
         </TouchableOpacity>
-      </View>
 
-      {isModeTransitioning && (
-        <View style={styles.modeSwitchOverlay} pointerEvents="auto">
-          <ActivityIndicator size="large" color="#fff" />
-          <Text style={styles.modeSwitchLabel}>Switching camera...</Text>
-          {isCancelAvailable && (
-            <TouchableOpacity
-              style={styles.modeSwitchCancelButton}
-              onPress={handleCancelModeSwitch}
-              activeOpacity={0.8}
-              testID="mode-switch-cancel"
-            >
-              <Text style={styles.modeSwitchCancelText}>Cancel</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      )}
+        {/* Camera connection timeout retry */}
+        {externalCamera.isConnectionTimedOut && (
+          <TouchableOpacity
+            style={styles.retryButton}
+            onPress={async () => {
+              externalCamera.resetConnectionTimeout();
+              await externalCamera.retryPreview();
+            }}
+          >
+            <Text style={styles.retryButtonText}>Retry Connection</Text>
+          </TouchableOpacity>
+        )}
+      </View>
     </View>
   );
 }
@@ -1563,37 +1046,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#000",
-  },
-  modeSwitchOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(0,0,0,0.75)",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 100,
-  },
-  modeSwitchLabel: {
-    marginTop: 16,
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#fff",
-  },
-  modeSwitchCancelButton: {
-    marginTop: 24,
-    paddingHorizontal: 28,
-    paddingVertical: 12,
-    borderRadius: 24,
-    backgroundColor: "rgba(255,255,255,0.18)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.4)",
-  },
-  modeSwitchCancelText: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#fff",
   },
   centerContainer: {
     flex: 1,
@@ -1649,10 +1101,6 @@ const styles = StyleSheet.create({
     left: 16,
     right: 16,
     zIndex: 10,
-  },
-  modeToggleContainer: {
-    marginTop: 10,
-    alignItems: "center",
   },
   headerPill: {
     flexDirection: "row",
@@ -1727,42 +1175,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     zIndex: 10,
   },
-
-  // Lens selector
-  lensSelector: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 20,
-    backgroundColor: "rgba(0,0,0,0.35)",
-    borderRadius: 22,
-    padding: 3,
-  },
-  lensButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  lensButtonActive: {
-    backgroundColor: "rgba(255,255,255,0.25)",
-  },
-  lensButtonDisabled: {
-    opacity: 0.3,
-  },
-  lensText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "rgba(255,255,255,0.6)",
-  },
-  lensTextActive: {
-    color: "#FFD60A",
-  },
-  lensTextDisabled: {
-    color: "rgba(255,255,255,0.3)",
-  },
-
   timerContainer: {
     marginBottom: 24,
     paddingHorizontal: 16,
@@ -1860,5 +1272,19 @@ const styles = StyleSheet.create({
   },
   statusTextWarning: {
     color: "#FFD60A",
+  },
+  retryButton: {
+    marginTop: 12,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.4)",
+  },
+  retryButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#fff",
   },
 });

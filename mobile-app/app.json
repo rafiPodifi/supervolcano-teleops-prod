@@ -27,7 +27,6 @@
       "package": "com.supervolcano.camera",
       "permissions": [
         "CAMERA",
-        "RECORD_AUDIO",
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION"
       ],
@@ -38,8 +37,7 @@
         "react-native-vision-camera",
         {
           "cameraPermissionText": "SuperVolcano needs camera access to record walkthrough videos",
-          "enableMicrophonePermission": true,
-          "microphonePermissionText": "SuperVolcano needs microphone access to record audio"
+          "enableMicrophonePermission": false
         }
       ],
       [
