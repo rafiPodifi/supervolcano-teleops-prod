@@ -75,6 +75,8 @@ export interface VideoItem {
   contributorType?: string | null;
   contributorId?: string | null;
   contributorOrgId?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 interface Stats {
