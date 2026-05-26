@@ -240,7 +240,7 @@ export function OverviewTab({
                 TRAINING
               </th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 dark:text-gray-400">
-                CREATED
+                RECORDED
               </th>
             </tr>
           </thead>
@@ -329,7 +329,10 @@ export function OverviewTab({
                     {getTrainingBadge(item.trainingStatus)}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
-                    {formatDate(item.uploadedAt)}
+                    {/* Prefer the actual recording wall-clock time. Falls back
+                        to uploadedAt for legacy rows recorded before the mobile
+                        app started sending startedAt. */}
+                    {formatDate(item.recordedAt ?? item.uploadedAt)}
                   </td>
                 </tr>
               ))

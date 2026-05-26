@@ -61,6 +61,12 @@ export async function GET(
         status: data.status,
         uploadedAt:
           data.uploadedAt?.toDate?.()?.toISOString() || data.uploadedAt,
+        recordedAt:
+          data.recordedAt?.toDate?.()?.toISOString() || data.recordedAt || null,
+        recordingEndedAt:
+          data.recordingEndedAt?.toDate?.()?.toISOString() ||
+          data.recordingEndedAt ||
+          null,
         latitude: data.latitude ?? null,
         longitude: data.longitude ?? null,
       };

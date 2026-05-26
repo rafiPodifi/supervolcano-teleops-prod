@@ -95,6 +95,8 @@ export class VideoUploadService {
         durationSeconds: artifact.durationSeconds,
         latitude: segment.latitude,
         longitude: segment.longitude,
+        startedAt: segment.startedAt,
+        endedAt: segment.endedAt,
       });
       onStage?.({
         stage: "completed",

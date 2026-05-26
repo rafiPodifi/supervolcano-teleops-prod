@@ -77,6 +77,8 @@ export interface VideoItem {
   contributorOrgId?: string | null;
   latitude?: number | null;
   longitude?: number | null;
+  recordedAt?: string | null;
+  recordingEndedAt?: string | null;
 }
 
 interface Stats {
@@ -768,7 +770,14 @@ export default function MediaLibraryPage() {
     if (!d) return "-";
     try {
       const date = new Date(d);
-      return isNaN(date.getTime()) ? "-" : date.toLocaleDateString();
+      if (isNaN(date.getTime())) return "-";
+      // Full date + time so the Created column reflects when the recording
+      // actually happened (vs just the day), matching the feature request to
+      // surface a timestamp instead of a date.
+      return date.toLocaleString(undefined, {
+        dateStyle: "short",
+        timeStyle: "short",
+      });
     } catch {
       return "-";
     }
@@ -1511,7 +1520,9 @@ export default function MediaLibraryPage() {
                 </h2>
                 <p className="text-sm text-gray-500 dark:text-gray-400">
                   {selectedVideo.locationName || "Unknown location"} •{" "}
-                  {formatDate(selectedVideo.uploadedAt)}
+                  {formatDate(
+                    selectedVideo.recordedAt ?? selectedVideo.uploadedAt,
+                  )}
                 </p>
               </div>
               <div className="grid grid-cols-4 gap-4 text-sm">

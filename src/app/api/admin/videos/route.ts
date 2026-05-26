@@ -244,6 +244,8 @@ export async function GET(request: NextRequest) {
           contributorOrgId: data.contributorOrgId || null,
           latitude: data.latitude ?? null,
           longitude: data.longitude ?? null,
+          recordedAt: parseFirestoreTimestamp(data.recordedAt),
+          recordingEndedAt: parseFirestoreTimestamp(data.recordingEndedAt),
         };
       });
 

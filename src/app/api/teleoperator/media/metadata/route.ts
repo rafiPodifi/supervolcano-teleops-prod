@@ -23,7 +23,19 @@ export async function POST(request: NextRequest) {
       durationSeconds,
       latitude,
       longitude,
+      startedAt,
+      endedAt,
     } = body;
+
+    // Parse ISO timestamps from the mobile client. Stored as Firestore Date
+    // objects (not strings) so they sort and query as real timestamps.
+    const parseIsoDate = (v: unknown): Date | null => {
+      if (typeof v !== "string" || !v) return null;
+      const d = new Date(v);
+      return Number.isNaN(d.getTime()) ? null : d;
+    };
+    const recordedAt = parseIsoDate(startedAt);
+    const recordingEndedAt = parseIsoDate(endedAt);
 
     console.log("📹 TELEOPERATOR MEDIA API: Received metadata request");
     console.log("📹 Task ID:", taskId);
@@ -88,6 +100,10 @@ export async function POST(request: NextRequest) {
       durationSeconds: durationSeconds || null,
       latitude: typeof latitude === "number" ? latitude : null,
       longitude: typeof longitude === "number" ? longitude : null,
+      // Actual recording wall-clock times from the mobile encoder. Use these
+      // (not uploadedAt) to display "when did this footage happen" in admin.
+      recordedAt: recordedAt,
+      recordingEndedAt: recordingEndedAt,
       uploadedBy: "oem_teleoperator", // Mobile app upload
       uploadedAt: new Date(),
       createdAt: new Date(),

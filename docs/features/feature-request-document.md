@@ -7,7 +7,7 @@ Features Requests
 - Audio Recording: Disable audio recording immediately. DONE
 - Cache the locations so they are available even if there is not active internet at the location. TODO — `fetchAssignedLocationsForCurrentUser()` and `fetchJobsForLocation()` currently have no AsyncStorage backing.
 - Would be great to be able to open and see pending upload queue. DONE — both CameraScreen and MemberRecordScreen now show a tappable badge with queue total when not recording. Tap routes to FailedUploads or GenericPendingUploads depending on state. UploadQueueScreen also available for full debug view.
-- Time stamp in the Creation column in the Media Library instead of a date. TODO — current display uses `uploadedAt` (server-write time). Need to thread `startedAt`/`endedAt` (already on QueuedVideo) through saveMediaMetadata → Firestore → web display.
+- Time stamp in the Creation column in the Media Library instead of a date. DONE — mobile now threads `startedAt`/`endedAt` through saveMediaMetadata → Firestore (`recordedAt`/`recordingEndedAt`). Admin Media Library + LocationMediaTab read `recordedAt` (fallback `uploadedAt`) and render full date+time via `toLocaleString({dateStyle:'short', timeStyle:'short'})`. Column renamed from CREATED to RECORDED.
 
 Bug Reports
 
