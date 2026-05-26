@@ -9,6 +9,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import NetInfo from "@react-native-community/netinfo";
 import * as BackgroundFetch from "expo-background-fetch";
 import * as TaskManager from "expo-task-manager";
+import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import {
   AppState,
   AppStateStatus,
@@ -26,6 +27,7 @@ import {
 } from "./upload-debug.types";
 
 const UPLOAD_TASK_NAME = "SUPERVOLCANO_UPLOAD_QUEUE";
+const KEEP_AWAKE_TAG = "supervolcano-upload-queue";
 
 // Defined at module level — task callback runs when OS fires the background task.
 // By that time the module is fully loaded and UploadQueueService is available.
@@ -158,6 +160,8 @@ class UploadQueueServiceClass {
     this.appStateSubscription?.remove();
     this.appStateSubscription = null;
     BackgroundFetch.unregisterTaskAsync(UPLOAD_TASK_NAME).catch(() => {});
+    // Defensive release in case cleanup runs while an upload is in flight.
+    deactivateKeepAwake(KEEP_AWAKE_TAG);
   }
 
   subscribe(listener: QueueListener): () => void {
@@ -358,6 +362,12 @@ class UploadQueueServiceClass {
       `Processing ${pendingVideos.length} queued upload(s)`,
     );
 
+    // Hold a keep-awake while uploads are in flight so the screen-lock /
+    // device sleep doesn't tear down the resumable upload mid-stream. This
+    // covers the foreground case; Android Doze on a fully-closed app still
+    // needs a foreground service (future work).
+    await activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => {});
+
     try {
       for (const video of pendingVideos) {
         if (!this.isOnline) {
@@ -371,6 +381,7 @@ class UploadQueueServiceClass {
         await this.uploadVideo(video);
       }
     } finally {
+      deactivateKeepAwake(KEEP_AWAKE_TAG);
       this.isProcessing = false;
       this.notifyListeners();
     }
@@ -633,10 +644,15 @@ class UploadQueueServiceClass {
         "Upload finished successfully",
         "completed",
       );
-      await this.persistState();
 
-      await FileSystem.deleteAsync(video.localPath, { idempotent: true });
+      // Remove from queue FIRST so the badge updates immediately. File
+      // deletion is fire-and-forget — it can take 50–500ms on slower storage
+      // and shouldn't block the UI from reflecting that the upload is done.
+      // The intermediate persistState that used to live here was redundant:
+      // removeFromQueue → persistState already notifies listeners.
+      const localPath = video.localPath;
       await this.removeFromQueue(video.id);
+      FileSystem.deleteAsync(localPath, { idempotent: true }).catch(() => {});
     } catch (error: any) {
       const message = error?.message || "Unknown upload error";
 
