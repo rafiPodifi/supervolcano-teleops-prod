@@ -37,8 +37,8 @@ import { normalizeLocalFileUri } from "@/utils/local-file-uri";
 import { getFriendlyErrorCopy } from "@/utils/user-facing-error";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Haptics from "expo-haptics";
-
-const SEGMENT_DURATION = 300; // 5 minutes in seconds
+import { useRecordingConfig } from "@/hooks/useRecordingConfig";
+import { locationService } from "@/services/location.service";
 
 export default function CameraScreen({ route, navigation }: any) {
   const params = route.params || {};
@@ -66,6 +66,9 @@ export default function CameraScreen({ route, navigation }: any) {
       : hasCameraPermission
         ? "granted"
         : "denied";
+
+  // Recording config (segment duration, quality, etc.)
+  const recordingConfig = useRecordingConfig();
 
   // Upload queue status
   const uploadQueue = useUploadQueue();
@@ -95,6 +98,7 @@ export default function CameraScreen({ route, navigation }: any) {
   } | null>(null);
   const segmentCounterRef = useRef(0);
   const startRecordingSegmentRef = useRef<(() => Promise<void>) | null>(null);
+  const geoRef = useRef<{ latitude: number; longitude: number } | null>(null);
   const externalFinalizeWaitRef = useRef<{
     promise: Promise<void>;
     resolve: () => void;
@@ -125,6 +129,21 @@ export default function CameraScreen({ route, navigation }: any) {
         );
       });
     };
+  }, []);
+
+  // Request location permission AND pre-fetch coords on mount so the first
+  // segment of a session has GPS without delaying the record tap.
+  useEffect(() => {
+    locationService
+      .requestPermission()
+      .then((granted) => {
+        if (granted) return locationService.getCurrentCoordinates();
+        return null;
+      })
+      .then((coords) => {
+        if (coords) geoRef.current = coords;
+      })
+      .catch(() => {});
   }, []);
 
   // Initialize upload queue service
@@ -413,6 +432,8 @@ export default function CameraScreen({ route, navigation }: any) {
         startedAt: segment.startedAt,
         endedAt: new Date().toISOString(),
         recordingMode: isGenericRecording ? "generic" : "assigned",
+        latitude: geoRef.current?.latitude,
+        longitude: geoRef.current?.longitude,
       });
       UploadQueueService.logDebug(
         "info",
@@ -461,7 +482,7 @@ export default function CameraScreen({ route, navigation }: any) {
           console.log("[ExternalCamera] Segment duration reached, stopping...");
           ExternalCamera.stopRecording();
         }
-      }, SEGMENT_DURATION * 1000);
+      }, recordingConfig.segmentDurationSeconds * 1000);
     } catch (error: any) {
       console.error("[ExternalCamera] Start recording error:", error);
       setIsRecording(false);
@@ -472,7 +493,7 @@ export default function CameraScreen({ route, navigation }: any) {
       currentSegmentRef.current = null;
       segmentCounterRef.current = Math.max(0, segmentCounterRef.current - 1);
     }
-  }, [createExternalRecordingPath]);
+  }, [createExternalRecordingPath, recordingConfig.segmentDurationSeconds]);
 
   const handleExternalRecordingFinished = useCallback(
     async (filePath: string) => {
@@ -633,6 +654,27 @@ export default function CameraScreen({ route, navigation }: any) {
       sessionActiveRef.current = true;
       setElapsedTime(0);
       setSegmentsRecorded(0);
+
+      // Best-effort GPS for the FIRST segment: if mount-time prefetch hasn't
+      // populated geoRef yet, try a quick fix with a 500ms cap so the record
+      // tap isn't blocked. Background refresh keeps later segments fresh.
+      if (geoRef.current === null) {
+        await Promise.race([
+          locationService
+            .getCurrentCoordinates()
+            .then((coords) => {
+              if (coords) geoRef.current = coords;
+            })
+            .catch(() => {}),
+          new Promise<void>((resolve) => setTimeout(resolve, 500)),
+        ]);
+      }
+      locationService
+        .getCurrentCoordinates()
+        .then((coords) => {
+          if (coords) geoRef.current = coords;
+        })
+        .catch(() => {});
 
       await startRecordingSegment();
     } catch (error: any) {

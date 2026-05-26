@@ -41,6 +41,8 @@ import { getFriendlyErrorCopy } from "../../utils/user-facing-error";
 import * as FileSystem from "expo-file-system/legacy";
 import { UploadQueueService } from "../../services/upload-queue.service";
 import { ExternalRecordingListener } from "../../services/external-recording-listener.service";
+import { useUploadQueue } from "../../hooks/useUploadQueue";
+import { locationService } from "../../services/location.service";
 
 type NavigationProp = NativeStackNavigationProp<MemberStackParamList>;
 
@@ -155,6 +157,11 @@ export default function MemberRecordScreen() {
   } = useMilestones();
   const [totalHoursUploaded] = useState(4.2); // TODO: Get from Firestore
 
+  // Upload queue badge
+  const uploadQueue = useUploadQueue();
+  const canOpenQueueDetails =
+    uploadQueue.failed > 0 || uploadQueue.needsAssignment > 0;
+
   // Animations
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
@@ -163,6 +170,13 @@ export default function MemberRecordScreen() {
   const isRecordingRef = useRef(isRecording);
   const segmentNumberRef = useRef(0);
   const recordingStartedAtRef = useRef<string | null>(null);
+  // Session / segmentation refs
+  const sessionActiveRef = useRef(false);
+  const segmentTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const geoRef = useRef<{ latitude: number; longitude: number } | null>(null);
+  // Held in a ref so the listener's auto-restart callback always invokes the
+  // latest `startNextSegment` even after recordingConfig changes mid-session.
+  const startNextSegmentRef = useRef<(() => Promise<void>) | null>(null);
 
   useEffect(() => {
     isExternalReadyRef.current = isExternalReady;
@@ -171,6 +185,23 @@ export default function MemberRecordScreen() {
   useEffect(() => {
     isRecordingRef.current = isRecording;
   }, [isRecording]);
+
+  useEffect(() => {
+    // Request location permission AND pre-fetch coords on mount so the very
+    // first segment of a session has GPS without delaying the record tap.
+    locationService
+      .requestPermission()
+      .then((granted) => {
+        if (granted) {
+          return locationService.getCurrentCoordinates();
+        }
+        return null;
+      })
+      .then((coords) => {
+        if (coords) geoRef.current = coords;
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!ExternalCamera.isSupported) {
@@ -285,6 +316,19 @@ export default function MemberRecordScreen() {
     return () => {
       subscription?.remove();
       ExternalRecordingListener.setErrorHandler(null);
+      ExternalRecordingListener.setAutoRestartCallback(null);
+      if (segmentTimeoutRef.current) {
+        clearTimeout(segmentTimeoutRef.current);
+        segmentTimeoutRef.current = null;
+      }
+      // If the screen unmounts mid-session (e.g. navigation pop), stop the
+      // native encoder so the in-progress file finalizes and gets queued by
+      // the module-level listener instead of leaking as an orphan in cache.
+      if (sessionActiveRef.current) {
+        sessionActiveRef.current = false;
+        ExternalCamera.stopRecording().catch(() => {});
+      }
+      ExternalRecordingListener.cancelPending();
     };
   }, []);
 
@@ -311,6 +355,69 @@ export default function MemberRecordScreen() {
     return `${recordingsDir}${filename}`;
   }, [ensureExternalRecordingDirectory]);
 
+  /** Start a single recording segment and schedule the next auto-stop. */
+  const startNextSegment = useCallback(async () => {
+    if (!sessionActiveRef.current) {
+      return;
+    }
+    if (!isExternalReadyRef.current) {
+      // Camera disconnected mid-session — abort the loop gracefully and let
+      // the USB-detach handler surface the user-facing alert.
+      console.warn(
+        "[MemberRecord] startNextSegment aborted: external camera not ready",
+      );
+      sessionActiveRef.current = false;
+      ExternalRecordingListener.setAutoRestartCallback(null);
+      setIsRecording(false);
+      return;
+    }
+    try {
+      const startedAt = new Date().toISOString();
+      segmentNumberRef.current += 1;
+      const outputPath = await createExternalRecordingPath();
+      const effectiveQuality = externalCamera.selectedProfile
+        ? capQualityToProfile(
+            recordingConfig.externalCamera.quality,
+            externalCamera.selectedProfile,
+          )
+        : recordingConfig.externalCamera.quality;
+      ExternalRecordingListener.beginSegment({
+        jobTitle: "Generic recording",
+        recordingMode: "generic",
+        startedAt,
+        latitude: geoRef.current?.latitude,
+        longitude: geoRef.current?.longitude,
+      });
+      await ExternalCamera.startRecording(outputPath, {
+        enableAudio: false,
+        quality: effectiveQuality,
+      });
+      // Schedule auto-stop at segment duration boundary
+      segmentTimeoutRef.current = setTimeout(() => {
+        if (sessionActiveRef.current) {
+          console.log(
+            "[MemberRecord] Segment duration reached, stopping segment...",
+          );
+          ExternalCamera.stopRecording();
+        }
+      }, recordingConfig.segmentDurationSeconds * 1000);
+    } catch (error) {
+      console.error("[MemberRecord] startNextSegment error:", error);
+      if (sessionActiveRef.current) {
+        sessionActiveRef.current = false;
+        ExternalRecordingListener.setAutoRestartCallback(null);
+        setIsRecording(false);
+        recordingStartedAtRef.current = null;
+      }
+    }
+  }, [createExternalRecordingPath, recordingConfig, externalCamera]);
+
+  // Keep ref synced to latest startNextSegment so the listener's auto-restart
+  // callback always invokes the freshest closure (latest recordingConfig, etc.).
+  useEffect(() => {
+    startNextSegmentRef.current = startNextSegment;
+  }, [startNextSegment]);
+
   const startRecording = useCallback(async () => {
     try {
       if (!ExternalCamera.isSupported) {
@@ -327,40 +434,67 @@ export default function MemberRecordScreen() {
 
       resetMilestones();
       setElapsedSeconds(0);
+      segmentNumberRef.current = 0;
+      // Reset module-level listener counter so segments restart at 1 per session.
+      ExternalRecordingListener.resetSegmentNumber();
+      sessionActiveRef.current = true;
       recordingStartedAtRef.current = new Date().toISOString();
 
+      // Best-effort GPS for the FIRST segment: if mount-time prefetch hasn't
+      // populated geoRef yet, try a quick fix with a 500ms cap to avoid
+      // blocking the record tap. Subsequent segments use whatever fix arrives.
+      if (geoRef.current === null) {
+        await Promise.race([
+          locationService
+            .getCurrentCoordinates()
+            .then((coords) => {
+              if (coords) geoRef.current = coords;
+            })
+            .catch(() => {}),
+          new Promise<void>((resolve) => setTimeout(resolve, 500)),
+        ]);
+      }
+      // Kick off a background refresh so later segments get a fresher fix.
+      locationService
+        .getCurrentCoordinates()
+        .then((coords) => {
+          if (coords) geoRef.current = coords;
+        })
+        .catch(() => {});
+
+      // Register stable auto-restart callback. Ref indirection means the
+      // listener always calls the latest startNextSegment, not a stale one
+      // captured at session-start time.
+      ExternalRecordingListener.setAutoRestartCallback(() => {
+        void startNextSegmentRef.current?.();
+      });
+
       setIsRecording(true);
-      const outputPath = await createExternalRecordingPath();
-      const effectiveQuality = externalCamera.selectedProfile
-        ? capQualityToProfile(
-            recordingConfig.externalCamera.quality,
-            externalCamera.selectedProfile,
-          )
-        : recordingConfig.externalCamera.quality;
-      ExternalRecordingListener.beginSegment({
-        jobTitle: "Generic recording",
-        recordingMode: "generic",
-        startedAt: recordingStartedAtRef.current ?? new Date().toISOString(),
-      });
-      await ExternalCamera.startRecording(outputPath, {
-        enableAudio: false,
-        quality: effectiveQuality,
-      });
+      await startNextSegment();
     } catch (error) {
+      sessionActiveRef.current = false;
+      ExternalRecordingListener.setAutoRestartCallback(null);
       setIsRecording(false);
       recordingStartedAtRef.current = null;
       console.error("[MemberRecord] Start error:", error);
     }
-  }, [
-    createExternalRecordingPath,
-    resetMilestones,
-    recordingConfig,
-    externalCamera,
-  ]);
+  }, [startNextSegment, resetMilestones]);
 
   const stopRecording = async () => {
+    // Tear down session loop before stopping encoder to prevent auto-restart.
+    sessionActiveRef.current = false;
+    ExternalRecordingListener.setAutoRestartCallback(null);
+    if (segmentTimeoutRef.current) {
+      clearTimeout(segmentTimeoutRef.current);
+      segmentTimeoutRef.current = null;
+    }
+
     // Wait for the encoder's terminal event before tearing down the recording,
-    // otherwise stopRecording can race with the encoder's flush.
+    // otherwise stopRecording can race with the encoder's flush. 5s budget is
+    // sized for the worst-case flush of a long HD segment on slower devices.
+    // If stopRecording is called in the brief between-segments gap, this just
+    // resolves with `{state: "timeout"}` after 5s — UI stays unfrozen because
+    // we don't reject on timeout.
     const terminal = ExternalRecordingListener.awaitNextTerminal(5000);
     try {
       await ExternalCamera.stopRecording();
@@ -373,6 +507,10 @@ export default function MemberRecordScreen() {
       console.warn("[MemberRecord] terminal wait error:", error);
     }
 
+    // Clear any pending segment metadata so a late finalize from this session
+    // can't be mis-attributed to the next one.
+    ExternalRecordingListener.cancelPending();
+
     setIsRecording(false);
     if (timerRef.current) {
       clearInterval(timerRef.current);
@@ -381,6 +519,16 @@ export default function MemberRecordScreen() {
     setElapsedSeconds(0);
     resetMilestones();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+  };
+
+  const openUploadQueue = () => {
+    if (uploadQueue.failed > 0) {
+      navigation.navigate("FailedUploads");
+      return;
+    }
+    if (uploadQueue.needsAssignment > 0) {
+      navigation.navigate("GenericPendingUploads");
+    }
   };
 
   // Handle record button press
@@ -561,6 +709,17 @@ export default function MemberRecordScreen() {
             >
               <View style={styles.recordingDot} />
             </Animated.View>
+          )}
+          {/* Upload queue badge — only visible when not recording */}
+          {!isRecording && uploadQueue.total > 0 && (
+            <TouchableOpacity
+              onPress={canOpenQueueDetails ? openUploadQueue : undefined}
+              style={styles.queueBadge}
+              activeOpacity={canOpenQueueDetails ? 0.8 : 1}
+              disabled={!canOpenQueueDetails}
+            >
+              <Text style={styles.queueBadgeText}>{uploadQueue.total}</Text>
+            </TouchableOpacity>
           )}
         </HeaderPill>
       </View>
@@ -762,6 +921,20 @@ const styles = StyleSheet.create({
     height: 10,
     borderRadius: 5,
     backgroundColor: "#ff3b30",
+  },
+  queueBadge: {
+    minWidth: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "#2563eb",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 6,
+  },
+  queueBadgeText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "700",
   },
 
   // Bottom controls

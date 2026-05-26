@@ -23,6 +23,8 @@ interface PendingSegment {
   locationName?: string;
   jobId?: string;
   startedAt: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 type ErrorHandler = (message?: string) => void;
@@ -38,6 +40,7 @@ class ExternalRecordingListenerClass {
   private segmentNumber = 0;
   private onError: ErrorHandler | null = null;
   private terminalWaiters: TerminalWaiter[] = [];
+  private autoRestartCallback: (() => void) | null = null;
 
   private fireTerminalWaiters(outcome: TerminalOutcome): void {
     if (this.terminalWaiters.length === 0) {
@@ -117,12 +120,22 @@ class ExternalRecordingListenerClass {
             startedAt: pending.startedAt,
             endedAt,
             recordingMode: pending.recordingMode,
-          }).catch((error) => {
-            console.error(
-              "[ExternalRecordingListener] Failed to enqueue finalized recording:",
-              error,
-            );
-          });
+            latitude: pending.latitude,
+            longitude: pending.longitude,
+          })
+            .catch((error) => {
+              console.error(
+                "[ExternalRecordingListener] Failed to enqueue finalized recording:",
+                error,
+              );
+            })
+            .finally(() => {
+              // Re-read callback from instance (not a captured local) so that
+              // setAutoRestartCallback(null) during the await window is honoured.
+              // Fires on both success and failure so the recording loop doesn't
+              // silently die when queueing fails (disk full, AsyncStorage error).
+              this.autoRestartCallback?.();
+            });
         } else if (event.state === "error") {
           this.pending = null;
           console.error(
@@ -144,6 +157,15 @@ class ExternalRecordingListenerClass {
     this.subscription = null;
     this.onError = null;
     this.fireTerminalWaiters({ state: "timeout" });
+  }
+
+  setAutoRestartCallback(cb: (() => void) | null): void {
+    this.autoRestartCallback = cb;
+  }
+
+  /** Reset the internal segment counter. Call at the start of a new recording session. */
+  resetSegmentNumber(): void {
+    this.segmentNumber = 0;
   }
 
   beginSegment(payload: PendingSegment): void {

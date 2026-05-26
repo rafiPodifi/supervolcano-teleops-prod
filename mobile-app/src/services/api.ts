@@ -294,6 +294,8 @@ export async function saveMediaMetadata(data: {
   fileSize: number;
   mimeType: string;
   durationSeconds?: number;
+  latitude?: number;
+  longitude?: number;
 }) {
   try {
     console.log("💾 Saving media metadata...");
@@ -325,6 +327,8 @@ export async function saveMediaMetadata(data: {
           fileSize: data.fileSize,
           mimeType: data.mimeType,
           durationSeconds: data.durationSeconds,
+          latitude: data.latitude,
+          longitude: data.longitude,
         }),
       },
     );

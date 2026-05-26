@@ -53,6 +53,8 @@ export interface QueuedVideo {
   locationName?: string;
   jobId?: string;
   jobTitle?: string;
+  latitude?: number;
+  longitude?: number;
   segmentNumber: number;
   startedAt: string;
   endedAt: string;
@@ -219,6 +221,8 @@ class UploadQueueServiceClass {
       locationName?: string;
       jobId?: string;
       jobTitle?: string;
+      latitude?: number;
+      longitude?: number;
       segmentNumber: number;
       startedAt: string;
       endedAt: string;
@@ -264,6 +268,8 @@ class UploadQueueServiceClass {
         locationName: payload.locationName,
         jobId: payload.jobId,
         jobTitle: payload.jobTitle ?? "Generic recording",
+        latitude: payload.latitude,
+        longitude: payload.longitude,
         segmentNumber: payload.segmentNumber,
         startedAt: payload.startedAt,
         endedAt: payload.endedAt,
@@ -535,6 +541,8 @@ class UploadQueueServiceClass {
         locationName: video.locationName,
         jobId: video.jobId,
         jobTitle: video.jobTitle,
+        latitude: video.latitude,
+        longitude: video.longitude,
         segmentNumber: video.segmentNumber,
         startedAt: video.startedAt,
         endedAt: video.endedAt,
@@ -705,6 +713,8 @@ class UploadQueueServiceClass {
       locationName: item.locationName,
       jobId: item.jobId,
       jobTitle: item.jobTitle ?? "Generic recording",
+      latitude: item.latitude,
+      longitude: item.longitude,
       segmentNumber: item.segmentNumber,
       startedAt: item.startedAt,
       endedAt: item.endedAt,
