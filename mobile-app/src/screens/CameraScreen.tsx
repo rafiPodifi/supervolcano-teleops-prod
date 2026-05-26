@@ -90,6 +90,12 @@ export default function CameraScreen({ route, navigation }: any) {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const sessionActiveRef = useRef(false);
+  // Monotonic id bumped on every start AND stop. Asynchronous finalize handlers
+  // capture this at fire time; if it has moved by the time they run the
+  // restart branch (user stopped and started a new session in the gap), the
+  // restart is skipped so we don't try to start while native is already
+  // recording.
+  const sessionIdRef = useRef(0);
   const segmentTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const appState = useRef(AppState.currentState);
   const currentSegmentRef = useRef<{
@@ -98,6 +104,9 @@ export default function CameraScreen({ route, navigation }: any) {
   } | null>(null);
   const segmentCounterRef = useRef(0);
   const startRecordingSegmentRef = useRef<(() => Promise<void>) | null>(null);
+  // Late-bound ref so the USB-detach listener (registered once at mount) can
+  // invoke the latest stopSession without needing it in its useEffect deps.
+  const stopSessionRef = useRef<(() => Promise<void>) | null>(null);
   const geoRef = useRef<{ latitude: number; longitude: number } | null>(null);
   const externalFinalizeWaitRef = useRef<{
     promise: Promise<void>;
@@ -393,7 +402,10 @@ export default function CameraScreen({ route, navigation }: any) {
     return promise;
   }, [rejectExternalFinalizeWait]);
 
-  async function queueCompletedSegment(videoUri: string): Promise<boolean> {
+  async function queueCompletedSegment(
+    videoUri: string,
+    handlerSessionId: number,
+  ): Promise<boolean> {
     const segment = currentSegmentRef.current;
 
     if (
@@ -454,7 +466,11 @@ export default function CameraScreen({ route, navigation }: any) {
       return false;
     }
 
-    if (sessionActiveRef.current) {
+    // Only restart if the session id is still the one this handler captured.
+    // Guards the case where user stopped (and possibly started a new session)
+    // while addToQueue was in flight — old finalize must not race the new
+    // session's startRecording.
+    if (sessionActiveRef.current && sessionIdRef.current === handlerSessionId) {
       console.log("[Camera] Starting next segment...");
       await startRecordingSegmentRef.current?.();
     }
@@ -497,6 +513,10 @@ export default function CameraScreen({ route, navigation }: any) {
 
   const handleExternalRecordingFinished = useCallback(
     async (filePath: string) => {
+      // Snapshot session id at the moment finalize arrives. queueCompletedSegment
+      // re-checks this before restarting so a stale finalize can't kick off a
+      // segment in a different session that began while addToQueue ran.
+      const handlerSessionId = sessionIdRef.current;
       console.log("[ExternalCamera] Segment complete:", filePath);
       UploadQueueService.logDebug(
         "info",
@@ -543,7 +563,10 @@ export default function CameraScreen({ route, navigation }: any) {
             }),
             "queued",
           );
-          const queued = await queueCompletedSegment(videoUri);
+          const queued = await queueCompletedSegment(
+            videoUri,
+            handlerSessionId,
+          );
           if (queued) {
             if (!sessionActiveRef.current) {
               showQueuedConfirmation();
@@ -613,8 +636,32 @@ export default function CameraScreen({ route, navigation }: any) {
       }
     });
 
+    // Camera unplug mid-session: tear down the session so the auto-segment
+    // loop can't try to restart on a missing device, and surface a clear
+    // alert. Native auto-stops the encoder on detach so the in-progress
+    // partial file still finalizes and gets queued by handleExternalRecordingFinished.
+    const detachSubscription = ExternalCamera.addUsbDetachListener(() => {
+      // Either flag being true means we still have a live session to tear
+      // down. sessionActiveRef captures the session loop state; isRecordingRef
+      // captures the current native-recording flag.
+      if (!sessionActiveRef.current) return;
+
+      // Immediate UI feedback before stopSession's async terminal wait.
+      setIsRecording(false);
+
+      stopSessionRef.current?.().catch((error: any) => {
+        console.error("[Camera] USB detach teardown error:", error);
+      });
+
+      Alert.alert(
+        "Camera Disconnected",
+        "Your camera was unplugged. The recording up to that point has been saved. Reconnect the camera to start a new session.",
+      );
+    });
+
     return () => {
       subscription?.remove();
+      detachSubscription?.remove();
     };
   }, [handleExternalRecordingError, handleExternalRecordingFinished]);
 
@@ -652,6 +699,9 @@ export default function CameraScreen({ route, navigation }: any) {
 
       setIsSessionActive(true);
       sessionActiveRef.current = true;
+      // Bump session id so any stale finalize handler still in flight from a
+      // previous session sees a mismatched id and skips its restart branch.
+      sessionIdRef.current += 1;
       setElapsedTime(0);
       setSegmentsRecorded(0);
 
@@ -691,6 +741,10 @@ export default function CameraScreen({ route, navigation }: any) {
     console.log("[Camera] Stopping session...");
     setIsSessionActive(false);
     sessionActiveRef.current = false;
+    // Bump session id so any in-flight finalize handler aborts its restart
+    // branch even if sessionActiveRef gets flipped back to true by a
+    // subsequent startSession before the handler resumes.
+    sessionIdRef.current += 1;
 
     if (segmentTimeoutRef.current) {
       clearTimeout(segmentTimeoutRef.current);
@@ -721,6 +775,12 @@ export default function CameraScreen({ route, navigation }: any) {
 
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   }, [clearExternalFinalizeWait, ensureExternalFinalizeWait, isRecording]);
+
+  // Keep ref synced to latest stopSession so the USB-detach listener can
+  // invoke it without re-registering the listener on every render.
+  useEffect(() => {
+    stopSessionRef.current = stopSession;
+  }, [stopSession]);
 
   // Handle record button press
   const handleRecordPress = () => {

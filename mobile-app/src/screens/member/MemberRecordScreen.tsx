@@ -177,6 +177,11 @@ export default function MemberRecordScreen() {
   // Held in a ref so the listener's auto-restart callback always invokes the
   // latest `startNextSegment` even after recordingConfig changes mid-session.
   const startNextSegmentRef = useRef<(() => Promise<void>) | null>(null);
+  // Monotonic session id — incremented on each start AND stop. The auto-restart
+  // callback captures the id at registration time and ignores firings where
+  // the current id has moved on (i.e. user stopped or started a new session
+  // while addToQueue from the old segment was still in flight).
+  const sessionIdRef = useRef(0);
 
   useEffect(() => {
     isExternalReadyRef.current = isExternalReady;
@@ -290,13 +295,31 @@ export default function MemberRecordScreen() {
     }
 
     const subscription = ExternalCamera.addUsbDetachListener(() => {
-      if (isRecordingRef.current) {
-        stopRecording();
-        Alert.alert(
-          "Camera Disconnected",
-          "Your camera was unplugged. The session has been saved. Reconnect the camera and start a new session.",
-        );
+      // Guard against repeat events from rapid replug. Either flag being true
+      // means we still have a live session to tear down.
+      if (!sessionActiveRef.current && !isRecordingRef.current) return;
+
+      // Immediate UI feedback: stop the timer + clear the record indicator
+      // so the user sees the recording end the moment the cable pops out,
+      // instead of waiting up to 5s for the encoder to finalize.
+      setIsRecording(false);
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
       }
+
+      // Background tear-down: native side already stopped the encoder, but
+      // stopRecording also bumps sessionId, nulls the auto-restart callback,
+      // and awaits the terminal event so the partial file is queued by
+      // ExternalRecordingListener before we reset the rest of UI state.
+      stopRecording().catch((error) => {
+        console.error("[MemberRecord] USB detach teardown error:", error);
+      });
+
+      Alert.alert(
+        "Camera Disconnected",
+        "Your camera was unplugged. The recording up to that point has been saved. Reconnect the camera to start a new session.",
+      );
     });
 
     ExternalRecordingListener.setErrorHandler((message) => {
@@ -438,6 +461,10 @@ export default function MemberRecordScreen() {
       // Reset module-level listener counter so segments restart at 1 per session.
       ExternalRecordingListener.resetSegmentNumber();
       sessionActiveRef.current = true;
+      // Bump session id so any stale auto-restart callback from a previous
+      // session (still pending in an in-flight addToQueue .finally) becomes
+      // a no-op when it eventually fires.
+      const sessionId = ++sessionIdRef.current;
       recordingStartedAtRef.current = new Date().toISOString();
 
       // Best-effort GPS for the FIRST segment: if mount-time prefetch hasn't
@@ -462,10 +489,12 @@ export default function MemberRecordScreen() {
         })
         .catch(() => {});
 
-      // Register stable auto-restart callback. Ref indirection means the
-      // listener always calls the latest startNextSegment, not a stale one
-      // captured at session-start time.
+      // Register session-bound auto-restart callback. The captured sessionId
+      // gates re-entry: if user has stopped or started a new session by the
+      // time this fires (e.g. addToQueue .finally lands after a Stop), the
+      // sessionIdRef.current will have advanced and the callback no-ops.
       ExternalRecordingListener.setAutoRestartCallback(() => {
+        if (sessionIdRef.current !== sessionId) return;
         void startNextSegmentRef.current?.();
       });
 
@@ -482,6 +511,9 @@ export default function MemberRecordScreen() {
 
   const stopRecording = async () => {
     // Tear down session loop before stopping encoder to prevent auto-restart.
+    // Bump sessionId so any pending callback from a finalize that's still in
+    // its addToQueue .finally window will see a stale id and no-op.
+    sessionIdRef.current += 1;
     sessionActiveRef.current = false;
     ExternalRecordingListener.setAutoRestartCallback(null);
     if (segmentTimeoutRef.current) {

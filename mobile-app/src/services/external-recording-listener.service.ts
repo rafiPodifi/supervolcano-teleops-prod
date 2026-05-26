@@ -111,6 +111,14 @@ class ExternalRecordingListenerClass {
           const endedAt = new Date().toISOString();
           this.segmentNumber += 1;
 
+          // Snapshot the callback AT finalize time, not in .finally. If user
+          // stops the session and starts a new one while addToQueue is still
+          // in flight, the new session installs a new callback — reading fresh
+          // in .finally would fire the new session's callback for the OLD
+          // segment, racing the new session's own recording start. The
+          // snapshotted callback may still fire after a stop, but the consumer
+          // (MemberRecordScreen) guards it with a session ID check.
+          const restartCallback = this.autoRestartCallback;
           void UploadQueueService.addToQueue(normalized, {
             locationId: pending.locationId,
             locationName: pending.locationName,
@@ -130,11 +138,10 @@ class ExternalRecordingListenerClass {
               );
             })
             .finally(() => {
-              // Re-read callback from instance (not a captured local) so that
-              // setAutoRestartCallback(null) during the await window is honoured.
-              // Fires on both success and failure so the recording loop doesn't
-              // silently die when queueing fails (disk full, AsyncStorage error).
-              this.autoRestartCallback?.();
+              // .finally (not .then) so loop survives addToQueue rejections —
+              // disk full or AsyncStorage error shouldn't silently kill the
+              // recording session.
+              restartCallback?.();
             });
         } else if (event.state === "error") {
           this.pending = null;
