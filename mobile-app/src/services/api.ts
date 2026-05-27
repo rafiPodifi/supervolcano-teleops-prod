@@ -3,8 +3,45 @@ import { collection, getDocs, doc, getDoc } from "firebase/firestore";
 import { Location, Job } from "../types";
 import { getApiBaseUrl } from "./api-base";
 import { getAuth } from "firebase/auth";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const API_BASE_URL = getApiBaseUrl();
+
+/**
+ * Offline cache for the two reads that field workers hit before they have
+ * internet at the site. Stale-while-revalidate: every successful network
+ * fetch overwrites the cache; if the network fetch fails we fall back to
+ * the last good payload so the cleaner can still see assigned locations
+ * and jobs.
+ */
+const LOCATIONS_CACHE_PREFIX = "cache:assignedLocations:";
+const JOBS_CACHE_PREFIX = "cache:jobsForLocation:";
+
+interface CacheEnvelope<T> {
+  cachedAt: number;
+  data: T;
+}
+
+async function readCache<T>(key: string): Promise<T | null> {
+  try {
+    const raw = await AsyncStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CacheEnvelope<T>;
+    return parsed?.data ?? null;
+  } catch (error) {
+    console.warn(`[cache] read failed for ${key}`, error);
+    return null;
+  }
+}
+
+async function writeCache<T>(key: string, data: T): Promise<void> {
+  try {
+    const envelope: CacheEnvelope<T> = { cachedAt: Date.now(), data };
+    await AsyncStorage.setItem(key, JSON.stringify(envelope));
+  } catch (error) {
+    console.warn(`[cache] write failed for ${key}`, error);
+  }
+}
 
 export async function fetchAssignedLocationsForCurrentUser(): Promise<
   Location[]
@@ -15,6 +52,8 @@ export async function fetchAssignedLocationsForCurrentUser(): Promise<
   if (!currentUser) {
     return [];
   }
+
+  const cacheKey = `${LOCATIONS_CACHE_PREFIX}${currentUser.uid}`;
 
   try {
     const token = await currentUser.getIdToken();
@@ -29,17 +68,29 @@ export async function fetchAssignedLocationsForCurrentUser(): Promise<
 
     const data = await response.json();
     if (!data.success || !Array.isArray(data.assignments)) {
-      return [];
+      // Server reachable but payload empty / malformed — prefer the last
+      // good snapshot over an empty list so the cleaner doesn't see "No
+      // locations" on a flaky response.
+      const cached = await readCache<Location[]>(cacheKey);
+      return cached ?? [];
     }
 
-    return data.assignments.map((assignment: any) => ({
+    const locations = data.assignments.map((assignment: any) => ({
       id: assignment.location_id,
       name: assignment.location_name || "Unnamed Location",
       address: assignment.location_address || "",
       assignedOrganizationName: "",
     })) as Location[];
+
+    await writeCache(cacheKey, locations);
+    return locations;
   } catch (error) {
     console.error("❌ Failed to fetch current user assigned locations:", error);
+    const cached = await readCache<Location[]>(cacheKey);
+    if (cached) {
+      console.log(`📦 Serving ${cached.length} cached locations (offline)`);
+      return cached;
+    }
     return [];
   }
 }
@@ -251,6 +302,8 @@ export async function fetchJobsForLocation(locationId: string): Promise<Job[]> {
     throw new Error("No authenticated user");
   }
 
+  const cacheKey = `${JOBS_CACHE_PREFIX}${locationId}`;
+
   try {
     console.log("\n💼 === FETCH JOBS ===");
     console.log("💼 Location ID:", locationId);
@@ -275,10 +328,18 @@ export async function fetchJobsForLocation(locationId: string): Promise<Job[]> {
 
     const jobs = (Array.isArray(data.jobs) ? data.jobs : []) as Job[];
     console.log("💼 Total jobs returned:", jobs.length);
+    await writeCache(cacheKey, jobs);
     return jobs;
   } catch (error: any) {
     console.error("❌ Failed to fetch jobs:", error);
     console.error("❌ Error message:", error.message);
+    const cached = await readCache<Job[]>(cacheKey);
+    if (cached) {
+      console.log(
+        `📦 Serving ${cached.length} cached jobs for location ${locationId} (offline)`,
+      );
+      return cached;
+    }
     throw error;
   }
 }
