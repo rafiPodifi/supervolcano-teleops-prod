@@ -1,32 +1,38 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, StatusBar, Animated } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import { fetchJobsForLocation } from '../services/api';
-import { Job, Location } from '../types';
-import { Colors, Typography, Spacing, BorderRadius, Shadows } from '../constants/Design';
-import { getFriendlyErrorCopy } from '@/utils/user-facing-error';
+/**
+ * JOB SELECT SCREEN
+ * Cleaners pick a job for the chosen location, then enter the recording flow.
+ * Style mirrors LocationsScreen — iOS-leaning, bold heading, soft white cards,
+ * staggered card entrance, blue accent.
+ */
+
+import React, { useState, useEffect, useRef } from "react";
+import {
+  View,
+  Text,
+  FlatList,
+  TouchableOpacity,
+  ActivityIndicator,
+  Alert,
+  StyleSheet,
+  StatusBar,
+  Animated,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
+import { Briefcase, ChevronRight } from "lucide-react-native";
+import * as Haptics from "expo-haptics";
+import { fetchJobsForLocation } from "../services/api";
+import { Job, Location } from "../types";
+import { getFriendlyErrorCopy } from "@/utils/user-facing-error";
 
 export default function JobSelectScreen({ route, navigation }: any) {
   const { location } = route.params as { location: Location };
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
-  const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     loadJobs();
   }, []);
-
-  useEffect(() => {
-    if (!loading) {
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }).start();
-    }
-  }, [loading]);
 
   async function loadJobs() {
     try {
@@ -34,304 +40,400 @@ export default function JobSelectScreen({ route, navigation }: any) {
       const jobsList = await fetchJobsForLocation(location.id);
       setJobs(jobsList);
     } catch (error) {
-      const friendly = getFriendlyErrorCopy(error, 'tasks');
+      const friendly = getFriendlyErrorCopy(error, "tasks");
       Alert.alert(friendly.title, friendly.message);
     } finally {
       setLoading(false);
     }
   }
 
-  const getPriorityColor = (priority?: string) => {
+  const handleJobPress = (job: Job) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    navigation.navigate("Camera", {
+      locationId: location.id,
+      locationName: location.name ?? "Unknown Location",
+      address: location.address,
+      jobId: job.id,
+      jobTitle: job.title,
+    });
+  };
+
+  const getPriorityColors = (priority?: string) => {
     switch (priority) {
-      case 'high': return { bg: Colors.priorityHigh, text: Colors.priorityHighText };
-      case 'medium': return { bg: Colors.priorityMedium, text: Colors.priorityMediumText };
-      default: return { bg: Colors.priorityLow, text: Colors.priorityLowText };
+      case "high":
+        return { bg: "#FEF2F2", text: "#B91C1C", dot: "#EF4444" };
+      case "medium":
+        return { bg: "#FEF3C7", text: "#92400E", dot: "#F59E0B" };
+      default:
+        return { bg: "#F0FDF4", text: "#166534", dot: "#22C55E" };
     }
   };
 
-  return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" />
-      
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity 
-          onPress={() => navigation.goBack()}
-          style={styles.backButton}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="arrow-back" size={24} color={Colors.textPrimary} />
-        </TouchableOpacity>
-        <View style={styles.headerText}>
-          <Text style={styles.headerTitle}>Select Job</Text>
-          <Text style={styles.headerSubtitle}>{location.name}</Text>
-        </View>
-      </View>
-
-      {loading ? (
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+        <StatusBar barStyle="dark-content" />
         <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading jobs...</Text>
+          <ActivityIndicator size="small" color="#8E8E93" />
         </View>
-      ) : jobs.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <View style={styles.emptyIconContainer}>
-            <Ionicons name="checkmark-circle-outline" size={64} color={Colors.textTertiary} />
-          </View>
-          <Text style={styles.emptyTitle}>All caught up!</Text>
-          <Text style={styles.emptyText}>No jobs available for this location yet</Text>
-        </View>
-      ) : (
-        <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
-          {/* Stats */}
-          <View style={styles.statsContainer}>
-            <View style={styles.statCard}>
-              <Text style={styles.statValue}>{jobs.length}</Text>
-              <Text style={styles.statLabel}>Total Jobs</Text>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+      <StatusBar barStyle="dark-content" />
+      <FlatList
+        data={jobs}
+        keyExtractor={(item) => item.id}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.listContent}
+        ListHeaderComponent={
+          <View style={styles.header}>
+            <View style={styles.headerTop}>
+              <TouchableOpacity
+                onPress={() => navigation.goBack()}
+                style={styles.backButton}
+                activeOpacity={0.7}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              >
+                <Ionicons name="chevron-back" size={26} color="#000" />
+              </TouchableOpacity>
             </View>
+            <Text style={styles.eyebrow}>Select a job</Text>
+            <Text style={styles.locationName} numberOfLines={2}>
+              {location.name}
+            </Text>
+            {location.address ? (
+              <Text style={styles.locationAddress} numberOfLines={1}>
+                {location.address}
+              </Text>
+            ) : (
+              <View style={styles.addressSpacer} />
+            )}
+
+            {jobs.length > 0 && (
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>
+                  {jobs.length === 1 ? "1 job" : `${jobs.length} jobs`}
+                </Text>
+                <Text style={styles.sectionHint}>Tap to start recording</Text>
+              </View>
+            )}
+          </View>
+        }
+        renderItem={({ item, index }) => (
+          <JobCard
+            job={item}
+            index={index}
+            onPress={() => handleJobPress(item)}
+            priorityColors={getPriorityColors((item as any).priority)}
+          />
+        )}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Ionicons
+              name="checkmark-circle-outline"
+              size={48}
+              color="#D1D1D6"
+            />
+            <Text style={styles.emptyTitle}>All caught up</Text>
+            <Text style={styles.emptyText}>
+              No jobs available for this location yet
+            </Text>
+          </View>
+        }
+      />
+    </SafeAreaView>
+  );
+}
+
+// Job Card with staggered entrance + press scale.
+function JobCard({
+  job,
+  index,
+  onPress,
+  priorityColors,
+}: {
+  job: Job;
+  index: number;
+  onPress: () => void;
+  priorityColors: { bg: string; text: string; dot: string };
+}) {
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(20)).current;
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    const delay = index * 60;
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 400,
+        delay,
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateY, {
+        toValue: 0,
+        duration: 400,
+        delay,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
+
+  const handlePressIn = () => {
+    Animated.timing(scaleAnim, {
+      toValue: 0.98,
+      duration: 100,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.timing(scaleAnim, {
+      toValue: 1,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  return (
+    <Animated.View
+      style={[
+        styles.cardContainer,
+        {
+          opacity: fadeAnim,
+          transform: [{ translateY }, { scale: scaleAnim }],
+        },
+      ]}
+    >
+      <TouchableOpacity
+        onPress={onPress}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        activeOpacity={0.85}
+        style={styles.card}
+      >
+        <View style={styles.cardIcon}>
+          <Briefcase size={22} color="#3B82F6" />
+        </View>
+
+        <View style={styles.cardBody}>
+          <View style={styles.cardTitleRow}>
+            <Text style={styles.cardTitle} numberOfLines={1}>
+              {job.title}
+            </Text>
+            {(job as any).priority ? (
+              <View
+                style={[
+                  styles.priorityPill,
+                  { backgroundColor: priorityColors.bg },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.priorityDot,
+                    { backgroundColor: priorityColors.dot },
+                  ]}
+                />
+                <Text
+                  style={[styles.priorityText, { color: priorityColors.text }]}
+                >
+                  {(job as any).priority}
+                </Text>
+              </View>
+            ) : null}
           </View>
 
-          <ScrollView 
-            style={styles.content}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.listContent}
-          >
-            {jobs.map((job, index) => {
-              const priorityColors = getPriorityColor(job.priority as any);
-              return (
-                <TouchableOpacity
-                  key={job.id}
-                  style={[styles.jobCard, { marginTop: index === 0 ? 0 : Spacing.md }]}
-                  onPress={() =>
-                    navigation.navigate('Camera', {
-                      locationId: location.id,
-                      locationName: location.name ?? 'Unknown Location',
-                      address: location.address,
-                      jobId: job.id,
-                      jobTitle: job.title,
-                    })
-                  }
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.jobContent}>
-                    <View style={styles.jobHeader}>
-                      <View style={styles.jobTitleRow}>
-                        <View style={styles.jobIcon}>
-                          <LinearGradient
-                            colors={['#8B5CF6', '#7C3AED']}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 1 }}
-                            style={styles.iconGradient}
-                          >
-                            <Ionicons name="briefcase" size={20} color="white" />
-                          </LinearGradient>
-                        </View>
-                        <View style={styles.jobInfo}>
-                          <Text style={styles.jobTitle} numberOfLines={1}>
-                            {job.title}
-                          </Text>
-                          {job.description && (
-                            <Text style={styles.jobDescription} numberOfLines={2}>
-                              {job.description}
-                            </Text>
-                          )}
-                        </View>
-                      </View>
-                      {job.priority && (
-                        <View style={[styles.priorityBadge, { backgroundColor: priorityColors.bg }]}>
-                          <Text style={[styles.priorityText, { color: priorityColors.text }]}>
-                            {job.priority}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                    
-                    <View style={styles.jobFooter}>
-                      {job.category && (
-                        <View style={styles.categoryBadge}>
-                          <Text style={styles.categoryText}>{job.category}</Text>
-                        </View>
-                      )}
-                      <View style={styles.actionButton}>
-                        <Text style={styles.actionButtonText}>Record</Text>
-                        <Ionicons name="chevron-forward" size={16} color={Colors.primary} />
-                      </View>
-                    </View>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </Animated.View>
-      )}
-    </SafeAreaView>
+          {job.description ? (
+            <Text style={styles.cardDescription} numberOfLines={2}>
+              {job.description}
+            </Text>
+          ) : null}
+
+          {job.category ? (
+            <Text style={styles.categoryText} numberOfLines={1}>
+              {job.category}
+            </Text>
+          ) : null}
+        </View>
+
+        <View style={styles.cardChevron}>
+          <ChevronRight size={18} color="#3B82F6" />
+        </View>
+      </TouchableOpacity>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.xl,
-    paddingVertical: Spacing.lg,
-    backgroundColor: Colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.borderLight,
-  },
-  backButton: {
-    marginRight: Spacing.md,
-    padding: Spacing.xs,
-  },
-  headerText: {
-    flex: 1,
-  },
-  headerTitle: {
-    ...Typography.titleLarge,
-    color: Colors.textPrimary,
-    marginBottom: Spacing.xs,
-  },
-  headerSubtitle: {
-    ...Typography.bodyMedium,
-    color: Colors.textSecondary,
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    gap: Spacing.md,
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.lg,
-    paddingBottom: Spacing.xxl,
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: Colors.backgroundTertiary,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.lg,
-    alignItems: 'center',
-  },
-  statValue: {
-    ...Typography.displayMedium,
-    color: Colors.primary,
-    marginBottom: Spacing.xs,
-  },
-  statLabel: {
-    ...Typography.bodySmall,
-    color: Colors.textSecondary,
-  },
-  content: {
-    flex: 1,
-  },
-  listContent: {
-    paddingHorizontal: Spacing.xl,
-    paddingBottom: Spacing.xxl,
+    backgroundColor: "#FFFFFF",
   },
   loadingContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
-  loadingText: {
-    ...Typography.bodyLarge,
-    color: Colors.textSecondary,
+  listContent: {
+    flexGrow: 1,
+    paddingBottom: 40,
   },
-  emptyContainer: {
+  // Header
+  header: {
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 8,
+  },
+  headerTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  backButton: {
+    marginLeft: -8,
+    padding: 4,
+  },
+  eyebrow: {
+    fontSize: 15,
+    color: "#8E8E93",
+    fontWeight: "500",
+    marginBottom: 4,
+  },
+  locationName: {
+    fontSize: 32,
+    fontWeight: "700",
+    color: "#000",
+    letterSpacing: -0.5,
+    marginBottom: 4,
+  },
+  locationAddress: {
+    fontSize: 14,
+    color: "#C7C7CC",
+    fontWeight: "500",
+    marginBottom: 24,
+  },
+  addressSpacer: {
+    height: 24,
+  },
+  // Section
+  sectionHeader: {
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: "600",
+    color: "#000",
+  },
+  sectionHint: {
+    fontSize: 13,
+    color: "#C7C7CC",
+    fontWeight: "400",
+    marginTop: 2,
+  },
+  // Card
+  cardContainer: {
+    paddingHorizontal: 20,
+    marginBottom: 10,
+  },
+  card: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  cardIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: "#EFF6FF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  cardBody: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.xxxl,
+    marginRight: 8,
   },
-  emptyIconContainer: {
-    marginBottom: Spacing.xxl,
+  cardTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    marginBottom: 4,
   },
-  emptyTitle: {
-    ...Typography.titleLarge,
-    color: Colors.textPrimary,
-    marginBottom: Spacing.sm,
-  },
-  emptyText: {
-    ...Typography.bodyMedium,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-  },
-  jobCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
-    ...Shadows.medium,
-  },
-  jobContent: {
-    padding: Spacing.lg,
-  },
-  jobHeader: {
-    marginBottom: Spacing.md,
-  },
-  jobTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: Spacing.sm,
-  },
-  jobIcon: {
-    marginRight: Spacing.md,
-  },
-  iconGradient: {
-    width: 40,
-    height: 40,
-    borderRadius: BorderRadius.md,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  jobInfo: {
+  cardTitle: {
     flex: 1,
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#111827",
   },
-  jobTitle: {
-    ...Typography.titleMedium,
-    color: Colors.textPrimary,
-    marginBottom: Spacing.xs,
+  cardDescription: {
+    fontSize: 14,
+    color: "#6B7280",
+    lineHeight: 19,
   },
-  jobDescription: {
-    ...Typography.bodyMedium,
-    color: Colors.textSecondary,
-    lineHeight: 20,
+  priorityPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    gap: 5,
   },
-  priorityBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
-    borderRadius: BorderRadius.sm,
-    marginTop: Spacing.xs,
+  priorityDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   priorityText: {
-    ...Typography.labelSmall,
-    textTransform: 'capitalize',
-  },
-  jobFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: Spacing.md,
-  },
-  categoryBadge: {
-    backgroundColor: Colors.backgroundTertiary,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
-    borderRadius: BorderRadius.sm,
+    fontSize: 11,
+    fontWeight: "600",
+    textTransform: "capitalize",
+    letterSpacing: 0.3,
   },
   categoryText: {
-    ...Typography.labelSmall,
-    color: Colors.primary,
+    marginTop: 6,
+    fontSize: 11,
+    color: "#3B82F6",
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
   },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    backgroundColor: Colors.backgroundTertiary,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.sm,
+  cardChevron: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#EFF6FF",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  actionButtonText: {
-    ...Typography.labelLarge,
-    color: Colors.primary,
+  // Empty
+  emptyContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: 80,
+    paddingHorizontal: 32,
+  },
+  emptyTitle: {
+    fontSize: 17,
+    fontWeight: "600",
+    color: "#000",
+    marginTop: 16,
+    marginBottom: 4,
+  },
+  emptyText: {
+    fontSize: 14,
+    color: "#8E8E93",
+    textAlign: "center",
   },
 });
