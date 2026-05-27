@@ -14,6 +14,7 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
+import { Video, ResizeMode } from "expo-av";
 import {
   fetchAssignedLocationsForCurrentUser,
   fetchJobsForLocation,
@@ -48,6 +49,7 @@ export default function GenericPendingUploadsScreen({ navigation }: any) {
   const [tasks, setTasks] = useState<Job[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [videoLoadError, setVideoLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -90,6 +92,7 @@ export default function GenericPendingUploadsScreen({ navigation }: any) {
     setSelectedLocationId(null);
     setSelectedTaskId(null);
     setTasks([]);
+    setVideoLoadError(null);
   };
 
   const closeAssignment = () => {
@@ -100,6 +103,7 @@ export default function GenericPendingUploadsScreen({ navigation }: any) {
     setSelectedLocationId(null);
     setSelectedTaskId(null);
     setTasks([]);
+    setVideoLoadError(null);
   };
 
   const loadTasks = async (locationId: string) => {
@@ -258,6 +262,44 @@ export default function GenericPendingUploadsScreen({ navigation }: any) {
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false}>
+              {/* Preview of the local recording being assigned — lets the
+                  user confirm which segment they're about to upload before
+                  picking a location / task. Native controls (play, pause,
+                  scrub) come free from expo-av Video. */}
+              {selectedItem ? (
+                <View style={styles.videoPreviewWrap}>
+                  {videoLoadError ? (
+                    <View style={styles.videoPreviewFallback}>
+                      <Ionicons name="film-outline" size={28} color="#94A3B8" />
+                      <Text style={styles.videoPreviewFallbackText}>
+                        Preview unavailable
+                      </Text>
+                      <Text style={styles.videoPreviewFallbackHint}>
+                        {videoLoadError}
+                      </Text>
+                    </View>
+                  ) : (
+                    <Video
+                      source={{ uri: selectedItem.localPath }}
+                      style={styles.videoPreview}
+                      useNativeControls
+                      resizeMode={ResizeMode.CONTAIN}
+                      onError={(error) =>
+                        setVideoLoadError(
+                          typeof error === "string"
+                            ? error
+                            : "File could not be played",
+                        )
+                      }
+                    />
+                  )}
+                  <Text style={styles.videoPreviewCaption}>
+                    Segment {selectedItem.segmentNumber} •{" "}
+                    {formatDateTime(selectedItem.createdAt)}
+                  </Text>
+                </View>
+              ) : null}
+
               <Text style={styles.sectionTitle}>1. Choose location</Text>
               {locationsLoading ? (
                 <ActivityIndicator
@@ -624,5 +666,42 @@ const styles = StyleSheet.create({
   },
   inlineLoader: {
     marginVertical: 18,
+  },
+  videoPreviewWrap: {
+    marginTop: 4,
+    marginBottom: 4,
+  },
+  videoPreview: {
+    width: "100%",
+    aspectRatio: 16 / 9,
+    borderRadius: 14,
+    backgroundColor: "#0F172A",
+  },
+  videoPreviewFallback: {
+    width: "100%",
+    aspectRatio: 16 / 9,
+    borderRadius: 14,
+    backgroundColor: "#F1F5F9",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+  },
+  videoPreviewFallbackText: {
+    marginTop: 8,
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#475569",
+  },
+  videoPreviewFallbackHint: {
+    marginTop: 2,
+    fontSize: 12,
+    color: "#94A3B8",
+    textAlign: "center",
+  },
+  videoPreviewCaption: {
+    marginTop: 8,
+    fontSize: 13,
+    color: "#64748B",
+    fontWeight: "500",
   },
 });
