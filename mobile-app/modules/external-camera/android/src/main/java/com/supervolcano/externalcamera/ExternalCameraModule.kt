@@ -83,10 +83,29 @@ class ExternalCameraModule : Module() {
 
     AsyncFunction("requestIgnoreBatteryOptimizations") {
       val ctx = appContext.reactContext ?: throw Exceptions.ReactContextLost()
-      val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+      // Try the direct system dialog first. Requires
+      // REQUEST_IGNORE_BATTERY_OPTIMIZATIONS permission in the manifest AND
+      // a target SDK / OEM that honours it. Falls back to the per-app
+      // settings page on any failure, which works on every OEM and is the
+      // most direct way to get the user to Battery → Unrestricted.
+      val requestIntent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
         .setData(Uri.parse("package:${ctx.packageName}"))
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-      ctx.startActivity(intent)
+      var launched = false
+      if (requestIntent.resolveActivity(ctx.packageManager) != null) {
+        try {
+          ctx.startActivity(requestIntent)
+          launched = true
+        } catch (t: Throwable) {
+          // Fall through to the app-details settings page below.
+        }
+      }
+      if (!launched) {
+        val detailsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+          .setData(Uri.parse("package:${ctx.packageName}"))
+          .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        ctx.startActivity(detailsIntent)
+      }
     }
 
     View(ExternalCameraPreviewView::class) {
