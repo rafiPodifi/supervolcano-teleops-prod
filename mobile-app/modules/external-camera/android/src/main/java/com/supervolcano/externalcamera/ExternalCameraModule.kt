@@ -1,6 +1,11 @@
 package com.supervolcano.externalcamera
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import expo.modules.kotlin.exception.Exceptions
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -64,6 +69,24 @@ class ExternalCameraModule : Module() {
 
     AsyncFunction("retryPreview") {
       controller.retryPreview()
+    }
+
+    // Battery-optimization controls. Living on this module to avoid spinning
+    // up a new native module for two functions. Used by App.tsx to prompt
+    // the user to exempt the app from Android Doze / App Standby so
+    // background uploads continue when the screen is off.
+    AsyncFunction("isBatteryOptimizationIgnored") {
+      val ctx = appContext.reactContext ?: throw Exceptions.ReactContextLost()
+      val pm = ctx.getSystemService(Context.POWER_SERVICE) as PowerManager
+      pm.isIgnoringBatteryOptimizations(ctx.packageName)
+    }
+
+    AsyncFunction("requestIgnoreBatteryOptimizations") {
+      val ctx = appContext.reactContext ?: throw Exceptions.ReactContextLost()
+      val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+        .setData(Uri.parse("package:${ctx.packageName}"))
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      ctx.startActivity(intent)
     }
 
     View(ExternalCameraPreviewView::class) {

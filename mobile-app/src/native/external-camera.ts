@@ -248,6 +248,37 @@ export const ExternalCamera = {
     await NativeExternalCameraModule.retryPreview();
   },
 
+  /**
+   * Returns true if the app is already exempt from Android battery
+   * optimizations (Doze + App Standby). On iOS or if the native module is
+   * missing, returns true (no-op — nothing to prompt about).
+   */
+  async isBatteryOptimizationIgnored(): Promise<boolean> {
+    if (!NativeExternalCameraModule) return true;
+    try {
+      return await NativeExternalCameraModule.isBatteryOptimizationIgnored();
+    } catch {
+      return true;
+    }
+  },
+
+  /**
+   * Opens the system "Allow [App] to run in background?" dialog. Returns
+   * immediately — there's no callback for the user's choice. Re-check
+   * isBatteryOptimizationIgnored() afterwards to learn the result.
+   */
+  async requestIgnoreBatteryOptimizations(): Promise<void> {
+    if (!NativeExternalCameraModule) return;
+    try {
+      await NativeExternalCameraModule.requestIgnoreBatteryOptimizations();
+    } catch (error) {
+      console.warn(
+        "[ExternalCamera] requestIgnoreBatteryOptimizations failed",
+        error,
+      );
+    }
+  },
+
   addCameraAvailabilityListener(
     listener: (event: CameraAvailabilityEvent) => void,
   ) {
