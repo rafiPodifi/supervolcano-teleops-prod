@@ -12,7 +12,7 @@ export type RecordingConfig = {
     zoom: number;
   };
   inactivityTimeoutMinutes: number;
-  /** Auto-segment duration in seconds. Applies to both CameraScreen and MemberRecordScreen. Default 300 (5 min). */
+  /** Auto-segment duration in seconds. Applies to both CameraScreen and MemberRecordScreen. Default 120 (2 min). */
   segmentDurationSeconds: number;
 };
 
@@ -20,7 +20,7 @@ const DEFAULTS: RecordingConfig = {
   externalCamera: { quality: "hd", enableAudio: false },
   nativeCamera: { enableAudio: true, zoom: 0.5 },
   inactivityTimeoutMinutes: 15,
-  segmentDurationSeconds: 300,
+  segmentDurationSeconds: 120,
 };
 
 /** Clamp segment duration to safe range. Prevents tight-loop DoS from bad admin config. */
