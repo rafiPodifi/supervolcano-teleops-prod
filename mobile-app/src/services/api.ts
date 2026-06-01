@@ -80,6 +80,14 @@ export async function fetchAssignedLocationsForCurrentUser(): Promise<
       name: assignment.location_name || "Unnamed Location",
       address: assignment.location_address || "",
       assignedOrganizationName: "",
+      latitude:
+        typeof assignment.latitude === "number"
+          ? assignment.latitude
+          : undefined,
+      longitude:
+        typeof assignment.longitude === "number"
+          ? assignment.longitude
+          : undefined,
     })) as Location[];
 
     await writeCache(cacheKey, locations);
@@ -348,7 +356,7 @@ export async function fetchJobsForLocation(locationId: string): Promise<Job[]> {
  * Save media metadata via teleoperator API (no auth required)
  */
 export async function saveMediaMetadata(data: {
-  taskId: string;
+  taskId?: string;
   locationId: string;
   storageUrl: string;
   fileName: string;

@@ -42,13 +42,14 @@ export async function POST(request: NextRequest) {
     console.log("📹 Location ID:", locationId);
     console.log("📹 Storage URL:", storageUrl?.substring(0, 100));
 
-    // Validate required fields
-    if (!taskId || !locationId || !storageUrl) {
+    // Validate required fields. taskId is optional: a location-bound recording
+    // can be uploaded before a job is chosen and assigned later on the dashboard.
+    if (!locationId || !storageUrl) {
       console.error("❌ Missing required fields");
       return NextResponse.json(
         {
           success: false,
-          error: "Missing required fields: taskId, locationId, storageUrl",
+          error: "Missing required fields: locationId, storageUrl",
         },
         { status: 400 },
       );
@@ -69,19 +70,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify task exists
-    try {
-      const taskDoc = await adminDb.collection("tasks").doc(taskId).get();
-      if (!taskDoc.exists) {
-        console.error("❌ Task not found:", taskId);
-        return NextResponse.json(
-          { success: false, error: "Task not found" },
-          { status: 404 },
-        );
+    // Verify task exists (only when a task was supplied).
+    if (taskId) {
+      try {
+        const taskDoc = await adminDb.collection("tasks").doc(taskId).get();
+        if (!taskDoc.exists) {
+          console.error("❌ Task not found:", taskId);
+          return NextResponse.json(
+            { success: false, error: "Task not found" },
+            { status: 404 },
+          );
+        }
+      } catch (error) {
+        console.error("❌ Failed to verify task:", error);
+        // Continue anyway - task might exist but query failed
       }
-    } catch (error) {
-      console.error("❌ Failed to verify task:", error);
-      // Continue anyway - task might exist but query failed
     }
 
     // Save metadata to Firestore
@@ -89,8 +92,10 @@ export async function POST(request: NextRequest) {
 
     await mediaRef.set({
       locationId,
-      taskId: taskId, // Use taskId consistently
-      jobId: taskId, // Also store as jobId for compatibility
+      taskId: taskId ?? null, // Use taskId consistently (null when unassigned)
+      jobId: taskId ?? null, // Also store as jobId for compatibility
+      // True when uploaded location-only; dashboard surfaces these for job assignment.
+      needsJobAssignment: !taskId,
       mediaType: mediaType || "video",
       storageUrl,
       thumbnailUrl: thumbnailUrl || null,

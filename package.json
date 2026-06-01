@@ -16,6 +16,7 @@
     "deploy-rules": "tsx scripts/deploy-rules.ts",
     "show-rules": "tsx scripts/show-rules.ts",
     "check-locations": "tsx scripts/check-locations.ts",
+    "backfill:location-coords": "tsx scripts/backfill-location-coords.ts",
     "setup:test": "tsx scripts/setup-test-data.ts",
     "create:teleoperator": "tsx scripts/create-test-teleoperator.ts",
     "create:org-manager": "tsx scripts/create-org-manager.ts",

@@ -21,6 +21,10 @@ export default function NewLocationPage() {
 
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
+  const [coordinates, setCoordinates] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
 
   const handleCreate = async () => {
     if (!name.trim()) {
@@ -63,6 +67,12 @@ export default function NewLocationPage() {
           type: "other",
           partnerOrgId,
           status: "active",
+          // Forward Places geometry when available; the server geocodes the
+          // address as a fallback when this is absent.
+          coordinates:
+            coordinates && (coordinates.lat !== 0 || coordinates.lng !== 0)
+              ? coordinates
+              : undefined,
         }),
       });
 
@@ -168,6 +178,7 @@ export default function NewLocationPage() {
                 value={address}
                 onChange={(addressData) => {
                   setAddress(addressData.fullAddress);
+                  setCoordinates(addressData.coordinates ?? null);
                 }}
                 placeholder="Start typing an address..."
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"

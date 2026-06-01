@@ -8,8 +8,26 @@ import { adminDb, getAdminApp } from "@/lib/firebaseAdmin";
 import type { Location, LocationStatus } from "@/lib/types";
 import { FieldValue } from "firebase-admin/firestore";
 import { randomUUID } from "crypto";
+import { geocodeAddress } from "@/lib/geocoding";
 
 const COLLECTION = "locations";
+
+/**
+ * Coordinates are considered missing when absent or a placeholder (0,0) —
+ * AddressAutocomplete emits {lat:0,lng:0} when the user types a raw address
+ * without picking a Places suggestion.
+ */
+function hasUsableCoordinates(coordinates?: {
+  lat: number;
+  lng: number;
+}): boolean {
+  return Boolean(
+    coordinates &&
+    typeof coordinates.lat === "number" &&
+    typeof coordinates.lng === "number" &&
+    !(coordinates.lat === 0 && coordinates.lng === 0),
+  );
+}
 
 /**
  * Create a new location
@@ -20,6 +38,14 @@ export async function createLocation(
 ): Promise<string> {
   const locationId = randomUUID();
   const now = new Date();
+
+  // Backfill coordinates from the address when the client didn't supply usable
+  // ones (Places geometry is preferred; geocoding covers raw-typed addresses).
+  let coordinates = data.coordinates;
+  if (!hasUsableCoordinates(coordinates) && data.address) {
+    const geocoded = await geocodeAddress(data.address);
+    if (geocoded) coordinates = geocoded;
+  }
 
   const location: Location = {
     locationId,
@@ -34,17 +60,20 @@ export async function createLocation(
     entryCode: data.entryCode,
     parkingInfo: data.parkingInfo,
     status: data.status || "active",
-    coordinates: data.coordinates,
+    coordinates,
     createdAt: now,
     updatedAt: now,
     createdBy,
   };
 
-  await adminDb.collection(COLLECTION).doc(locationId).set({
-    ...location,
-    createdAt: FieldValue.serverTimestamp(),
-    updatedAt: FieldValue.serverTimestamp(),
-  });
+  await adminDb
+    .collection(COLLECTION)
+    .doc(locationId)
+    .set({
+      ...location,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
 
   return locationId;
 }
@@ -52,7 +81,9 @@ export async function createLocation(
 /**
  * Get location by ID
  */
-export async function getLocation(locationId: string): Promise<Location | null> {
+export async function getLocation(
+  locationId: string,
+): Promise<Location | null> {
   const doc = await adminDb.collection(COLLECTION).doc(locationId).get();
   if (!doc.exists) {
     return null;
@@ -79,7 +110,10 @@ export async function listLocations(
 
   if (partnerOrgId) {
     query = query.where("partnerOrgId", "==", partnerOrgId);
-    console.log("[repo] listLocations - Filtering by partnerOrgId:", partnerOrgId);
+    console.log(
+      "[repo] listLocations - Filtering by partnerOrgId:",
+      partnerOrgId,
+    );
   }
 
   if (status) {
@@ -90,7 +124,11 @@ export async function listLocations(
   try {
     console.log("[repo] listLocations - Executing Firestore query...");
     const snapshot = await query.get();
-    console.log("[repo] listLocations - ✅ Query successful, found", snapshot.docs.length, "documents");
+    console.log(
+      "[repo] listLocations - ✅ Query successful, found",
+      snapshot.docs.length,
+      "documents",
+    );
     return snapshot.docs.map((doc) => normalizeLocation(doc.id, doc.data()));
   } catch (error: any) {
     console.error("[repo] listLocations - ❌ Query failed:", {
@@ -108,7 +146,9 @@ export async function listLocations(
 /**
  * Get locations by partner (alias for listLocations with partner filter)
  */
-export async function getLocationsByPartner(partnerId: string): Promise<Location[]> {
+export async function getLocationsByPartner(
+  partnerId: string,
+): Promise<Location[]> {
   return listLocations(partnerId);
 }
 
@@ -124,8 +164,18 @@ export async function updateLocation(
     updatedAt: FieldValue.serverTimestamp(),
   };
 
+  // Re-geocode when the address changes but no usable coordinates were supplied.
+  if (updates.address && !hasUsableCoordinates(updates.coordinates)) {
+    const geocoded = await geocodeAddress(updates.address);
+    if (geocoded) updateData.coordinates = geocoded;
+  }
+
   // Handle clearing organization assignment
-  if (updates.assignedOrganizationId === null || updates.assignedOrganizationId === undefined || updates.assignedOrganizationId === "") {
+  if (
+    updates.assignedOrganizationId === null ||
+    updates.assignedOrganizationId === undefined ||
+    updates.assignedOrganizationId === ""
+  ) {
     updateData.assignedOrganizationId = FieldValue.delete();
     updateData.assignedOrganizationName = FieldValue.delete();
   }
@@ -174,18 +224,28 @@ export async function deleteLocation(locationId: string): Promise<void> {
 /**
  * Get location with all tasks and instructions (for teleoperator view)
  */
-export async function getLocationWithAllTasksAndInstructions(locationId: string) {
-  console.log("[repo] getLocationWithAllTasksAndInstructions - Fetching for location:", locationId);
-  
-  const locationDoc = await adminDb.collection(COLLECTION).doc(locationId).get();
-  
+export async function getLocationWithAllTasksAndInstructions(
+  locationId: string,
+) {
+  console.log(
+    "[repo] getLocationWithAllTasksAndInstructions - Fetching for location:",
+    locationId,
+  );
+
+  const locationDoc = await adminDb
+    .collection(COLLECTION)
+    .doc(locationId)
+    .get();
+
   if (!locationDoc.exists) {
-    console.log("[repo] getLocationWithAllTasksAndInstructions - Location not found");
+    console.log(
+      "[repo] getLocationWithAllTasksAndInstructions - Location not found",
+    );
     return null;
   }
 
   const locationData = locationDoc.data();
-  
+
   // Get all active tasks for this location
   // Note: We fetch all and sort in memory to avoid composite index requirements
   const tasksSnapshot = await locationDoc.ref
@@ -193,13 +253,17 @@ export async function getLocationWithAllTasksAndInstructions(locationId: string)
     .where("status", "==", "active")
     .get();
 
-  console.log("[repo] getLocationWithAllTasksAndInstructions - Found", tasksSnapshot.docs.length, "tasks");
+  console.log(
+    "[repo] getLocationWithAllTasksAndInstructions - Found",
+    tasksSnapshot.docs.length,
+    "tasks",
+  );
 
   const tasks = [];
 
   for (const taskDoc of tasksSnapshot.docs) {
     const taskData = taskDoc.data();
-    
+
     // Get all instructions for this task
     const instructionsSnapshot = await taskDoc.ref
       .collection("instructions")
@@ -209,15 +273,19 @@ export async function getLocationWithAllTasksAndInstructions(locationId: string)
     const instructions = instructionsSnapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate?.() || doc.data().createdAt || new Date(),
-      updatedAt: doc.data().updatedAt?.toDate?.() || doc.data().updatedAt || new Date(),
+      createdAt:
+        doc.data().createdAt?.toDate?.() || doc.data().createdAt || new Date(),
+      updatedAt:
+        doc.data().updatedAt?.toDate?.() || doc.data().updatedAt || new Date(),
     }));
 
     tasks.push({
       id: taskDoc.id,
       ...taskData,
-      createdAt: taskData.createdAt?.toDate?.() || taskData.createdAt || new Date(),
-      updatedAt: taskData.updatedAt?.toDate?.() || taskData.updatedAt || new Date(),
+      createdAt:
+        taskData.createdAt?.toDate?.() || taskData.createdAt || new Date(),
+      updatedAt:
+        taskData.updatedAt?.toDate?.() || taskData.updatedAt || new Date(),
       instructions,
     });
   }
@@ -234,13 +302,23 @@ export async function getLocationWithAllTasksAndInstructions(locationId: string)
     return dateB - dateA; // Newer first
   });
 
-  console.log("[repo] getLocationWithAllTasksAndInstructions - Returning location with", tasks.length, "tasks");
+  console.log(
+    "[repo] getLocationWithAllTasksAndInstructions - Returning location with",
+    tasks.length,
+    "tasks",
+  );
 
   return {
     locationId: locationDoc.id,
     ...locationData,
-    createdAt: locationData?.createdAt?.toDate?.() || locationData?.createdAt || new Date(),
-    updatedAt: locationData?.updatedAt?.toDate?.() || locationData?.updatedAt || new Date(),
+    createdAt:
+      locationData?.createdAt?.toDate?.() ||
+      locationData?.createdAt ||
+      new Date(),
+    updatedAt:
+      locationData?.updatedAt?.toDate?.() ||
+      locationData?.updatedAt ||
+      new Date(),
     tasks,
   };
 }
@@ -268,4 +346,3 @@ function normalizeLocation(id: string, data: any): Location {
     createdBy: data.createdBy,
   };
 }
-

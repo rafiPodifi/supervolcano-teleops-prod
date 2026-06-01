@@ -11,8 +11,10 @@ export interface UploadProgress {
 export interface QueuedUploadInput {
   locationId: string;
   locationName: string;
-  jobId: string;
-  jobTitle: string;
+  // Job is optional: a location-bound recording can be uploaded before a job
+  // is chosen; the dashboard assigns it later.
+  jobId?: string;
+  jobTitle?: string;
   latitude?: number;
   longitude?: number;
   segmentNumber: number;

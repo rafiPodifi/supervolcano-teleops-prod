@@ -240,7 +240,10 @@ class UploadQueueServiceClass {
     const filename = `${id}.mov`;
     const persistentPath = `${VIDEOS_DIR}${filename}`;
     const now = new Date().toISOString();
-    const hasAssignment = Boolean(payload.locationId && payload.jobId);
+    // Job is optional: a location-bound recording is ready to upload even
+    // without a job (assigned later on the dashboard). Only a missing location
+    // forces needs_assignment.
+    const hasAssignment = Boolean(payload.locationId);
     const recordingMode =
       payload.recordingMode ?? (hasAssignment ? "assigned" : "generic");
 
@@ -506,19 +509,15 @@ class UploadQueueServiceClass {
   private async uploadVideo(video: QueuedVideo): Promise<void> {
     console.log("[UploadQueue] Uploading:", video.id);
 
-    if (
-      !video.locationId ||
-      !video.locationName ||
-      !video.jobId ||
-      !video.jobTitle
-    ) {
+    // Job/task is optional — only a missing location blocks upload.
+    if (!video.locationId || !video.locationName) {
       video.status = "needs_assignment";
       video.progress = 0;
       video.lastError = undefined;
       this.appendVideoLog(
         video,
         "info",
-        "Upload paused until location and task are assigned",
+        "Upload paused until a location is assigned",
         "queued",
       );
       await this.persistState();
@@ -716,7 +715,8 @@ class UploadQueueServiceClass {
 
   private normalizeQueuedVideo(item: any): QueuedVideo {
     const now = new Date().toISOString();
-    const hasAssignment = Boolean(item.locationId && item.jobId);
+    // Job optional — only a location is required to be upload-ready.
+    const hasAssignment = Boolean(item.locationId);
     const normalizedStatus =
       item.status === "uploading"
         ? "pending"

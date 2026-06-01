@@ -3,6 +3,8 @@ export interface Location {
   name: string;
   address?: string;
   assignedOrganizationName?: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface Job {
@@ -22,9 +24,8 @@ export interface UploadQueueItem {
   jobId: string;
   jobTitle: string;
   timestamp: Date;
-  status: 'pending' | 'uploading' | 'success' | 'error';
+  status: "pending" | "uploading" | "success" | "error";
   progress?: number;
   error?: string;
   storageUrl?: string;
 }
-

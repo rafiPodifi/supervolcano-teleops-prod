@@ -3,8 +3,16 @@
  * Handles GPS location and reverse geocoding
  */
 
-import * as Location from 'expo-location';
-import { Alert, Linking, Platform } from 'react-native';
+import * as Location from "expo-location";
+import { Alert, Linking, Platform } from "react-native";
+import type { Location as AssignedLocation } from "../types";
+
+/**
+ * Max distance (meters) for a location to count as a match. Not enforced yet —
+ * the current product decision is "always bind the nearest". Wire this into
+ * findNearestAssignedLocation once a radius is chosen.
+ */
+export const MATCH_RADIUS_M = Infinity;
 
 export interface AddressResult {
   formattedAddress: string;
@@ -24,38 +32,39 @@ class LocationService {
    */
   async requestPermission(): Promise<boolean> {
     try {
-      const { status: existingStatus } = await Location.getForegroundPermissionsAsync();
-      
-      if (existingStatus === 'granted') {
+      const { status: existingStatus } =
+        await Location.getForegroundPermissionsAsync();
+
+      if (existingStatus === "granted") {
         return true;
       }
 
       const { status } = await Location.requestForegroundPermissionsAsync();
-      
-      if (status !== 'granted') {
+
+      if (status !== "granted") {
         Alert.alert(
-          'Location Permission Required',
-          'Please enable location access in Settings to use this feature.',
+          "Location Permission Required",
+          "Please enable location access in Settings to use this feature.",
           [
-            { text: 'Cancel', style: 'cancel' },
-            { 
-              text: 'Open Settings', 
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Open Settings",
               onPress: () => {
-                if (Platform.OS === 'ios') {
-                  Linking.openURL('app-settings:');
+                if (Platform.OS === "ios") {
+                  Linking.openURL("app-settings:");
                 } else {
                   Linking.openSettings();
                 }
-              }
+              },
             },
-          ]
+          ],
         );
         return false;
       }
 
       return true;
     } catch (error) {
-      console.error('[Location] Permission error:', error);
+      console.error("[Location] Permission error:", error);
       return false;
     }
   }
@@ -63,7 +72,10 @@ class LocationService {
   /**
    * Get current location coordinates
    */
-  async getCurrentCoordinates(): Promise<{ latitude: number; longitude: number } | null> {
+  async getCurrentCoordinates(): Promise<{
+    latitude: number;
+    longitude: number;
+  } | null> {
     try {
       const hasPermission = await this.requestPermission();
       if (!hasPermission) return null;
@@ -77,7 +89,7 @@ class LocationService {
         longitude: location.coords.longitude,
       };
     } catch (error) {
-      console.error('[Location] Get coordinates error:', error);
+      console.error("[Location] Get coordinates error:", error);
       return null;
     }
   }
@@ -85,9 +97,15 @@ class LocationService {
   /**
    * Reverse geocode coordinates to address
    */
-  async reverseGeocode(latitude: number, longitude: number): Promise<AddressResult | null> {
+  async reverseGeocode(
+    latitude: number,
+    longitude: number,
+  ): Promise<AddressResult | null> {
     try {
-      const results = await Location.reverseGeocodeAsync({ latitude, longitude });
+      const results = await Location.reverseGeocodeAsync({
+        latitude,
+        longitude,
+      });
 
       if (!results || results.length === 0) {
         return null;
@@ -96,13 +114,10 @@ class LocationService {
       const result = results[0];
 
       // Build formatted address
-      const addressParts = [
-        result.streetNumber,
-        result.street,
-      ].filter(Boolean);
-      
-      const streetAddress = addressParts.join(' ');
-      
+      const addressParts = [result.streetNumber, result.street].filter(Boolean);
+
+      const streetAddress = addressParts.join(" ");
+
       const fullAddressParts = [
         streetAddress,
         result.city,
@@ -111,7 +126,7 @@ class LocationService {
       ].filter(Boolean);
 
       return {
-        formattedAddress: fullAddressParts.join(', '),
+        formattedAddress: fullAddressParts.join(", "),
         streetNumber: result.streetNumber || undefined,
         street: result.street || undefined,
         city: result.city || undefined,
@@ -122,7 +137,7 @@ class LocationService {
         longitude,
       };
     } catch (error) {
-      console.error('[Location] Reverse geocode error:', error);
+      console.error("[Location] Reverse geocode error:", error);
       return null;
     }
   }
@@ -135,10 +150,13 @@ class LocationService {
       const coords = await this.getCurrentCoordinates();
       if (!coords) return null;
 
-      const address = await this.reverseGeocode(coords.latitude, coords.longitude);
+      const address = await this.reverseGeocode(
+        coords.latitude,
+        coords.longitude,
+      );
       return address;
     } catch (error) {
-      console.error('[Location] Get current address error:', error);
+      console.error("[Location] Get current address error:", error);
       return null;
     }
   }
@@ -146,3 +164,58 @@ class LocationService {
 
 export const locationService = new LocationService();
 
+/**
+ * Great-circle distance between two coordinates, in meters.
+ */
+export function haversineMeters(
+  a: { latitude: number; longitude: number },
+  b: { latitude: number; longitude: number },
+): number {
+  const R = 6371000; // Earth radius (m)
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(b.latitude - a.latitude);
+  const dLng = toRad(b.longitude - a.longitude);
+  const lat1 = toRad(a.latitude);
+  const lat2 = toRad(b.latitude);
+
+  const sinDLat = Math.sin(dLat / 2);
+  const sinDLng = Math.sin(dLng / 2);
+  const h =
+    sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLng * sinDLng;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/**
+ * Pick the assigned location closest to the given coordinates. Locations
+ * without coordinates are ignored. Returns null when none have coordinates.
+ *
+ * MATCH_RADIUS_M is currently Infinity (nearest-always); once a radius is set,
+ * filter out matches beyond it here.
+ */
+export function findNearestAssignedLocation(
+  coords: { latitude: number; longitude: number },
+  locations: AssignedLocation[],
+): { location: AssignedLocation; distanceM: number } | null {
+  let best: { location: AssignedLocation; distanceM: number } | null = null;
+
+  for (const location of locations) {
+    if (
+      typeof location.latitude !== "number" ||
+      typeof location.longitude !== "number"
+    ) {
+      continue;
+    }
+
+    const distanceM = haversineMeters(coords, {
+      latitude: location.latitude,
+      longitude: location.longitude,
+    });
+
+    if (distanceM > MATCH_RADIUS_M) continue;
+    if (!best || distanceM < best.distanceM) {
+      best = { location, distanceM };
+    }
+  }
+
+  return best;
+}

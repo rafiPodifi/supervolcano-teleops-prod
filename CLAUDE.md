@@ -203,6 +203,40 @@ The app uses **role-based navigation**: `AppNavigator` → `CleanerNavigator` / 
 
 Key state tracking pattern in `MemberRecordScreen`: mode and recording state are mirrored into refs (`isExternalModeRef`, `isExternalReadyRef`, `isRecordingRef`) so they can be safely read from event listener callbacks without stale closures.
 
+### Cleaner recording flow (camera-first + GPS auto-assign)
+
+`CleanerNavigator`'s initial route is **`Camera`**, not the location list — a
+cleaner lands straight on the recording screen. `CameraScreen` runs in one of
+three modes off its route params:
+
+- **Auto** (no `locationId`, not `genericRecording`) — on every screen focus it
+  requests location permission, gets a GPS fix, and binds the **nearest
+  assigned location** via `findNearestAssignedLocation` (haversine) in
+  `location.service.ts`, fed by `fetchAssignedLocationsForCurrentUser`. The
+  bound location shows in the header; a Locations button overrides to the
+  manual list. Permission is **enforced**: denied/no-fix → camera disabled;
+  no nearby match → prompt to pick from the list (`locationResolveStatus`
+  state machine). `MATCH_RADIUS_M` is currently `Infinity` (nearest-always).
+- **Explicit** — `LocationsScreen` tap navigates to `Camera` with
+  `{locationId, locationName}` (binds for recording; job optional). `JobSelect`
+  remains registered for explicit job pick.
+- **Generic** — `genericRecording: true`, no location; assigned later.
+
+**Job is optional end-to-end.** A location-bound recording uploads with no
+task: the upload queue (`upload-queue.service.ts`) gates `pending` on
+`locationId` alone (not `jobId`), `saveMediaMetadata` sends no `taskId`, and
+`/api/teleoperator/media/metadata` stores `taskId/jobId: null` with
+`needsJobAssignment: true` for the dashboard to resolve. Job-less videos land
+under `media/<locationId>/unassigned/` in Storage.
+
+**Location coordinates pipeline.** Auto-assign needs `coordinates:{lat,lng}` on
+location docs. `src/lib/geocoding.ts` (`geocodeAddress`) geocodes the address
+server-side in `createLocation`/`updateLocation` (Places geometry from the
+admin form is preferred when present). `assigned-locations` returns
+`latitude`/`longitude`. Backfill existing docs with
+`pnpm backfill:location-coords` (per-env via `FIRESTORE_DATABASE_ID`). See
+Deployment → Geocoding key.
+
 ### Firebase Security Rules
 
 - Firestore rules: `src/firebase/firestore.rules`
@@ -280,6 +314,17 @@ read at runtime. Changing them requires a rebuild — they are passed as Docker
 `--build-arg` in the deploy workflows, not as Cloud Run env vars. A wrong
 `NEXT_PUBLIC_FIREBASE_API_KEY` or `NEXT_PUBLIC_AUTH_TENANT_ID` surfaces as
 `auth/api-key-not-valid` / `auth/invalid-tenant-id` in the browser.
+
+### Geocoding key (location coordinates)
+
+Server-side geocoding (`src/lib/geocoding.ts`, the backfill script) reads
+`GOOGLE_GEOCODING_API_KEY ?? NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`. The public
+`NEXT_PUBLIC_*` Maps key is typically HTTP-referer-restricted, so server-side
+Geocoding API calls with it return `REQUEST_DENIED`. Provision a dedicated
+`GOOGLE_GEOCODING_API_KEY` (Geocoding API enabled, no referer restriction) in
+Secret Manager + GitHub Actions before relying on auto-coords, then run
+`pnpm backfill:location-coords` once per env (`FIRESTORE_DATABASE_ID=staging-db|prod-db`).
+Without coords, the mobile cleaner camera shows "No Nearby Location".
 
 ### Firebase Storage bucket registration (Critical)
 

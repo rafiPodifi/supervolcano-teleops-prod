@@ -38,19 +38,45 @@ import { getFriendlyErrorCopy } from "@/utils/user-facing-error";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Haptics from "expo-haptics";
 import { useRecordingConfig } from "@/hooks/useRecordingConfig";
-import { locationService } from "@/services/location.service";
+import {
+  locationService,
+  findNearestAssignedLocation,
+} from "@/services/location.service";
+import { fetchAssignedLocationsForCurrentUser } from "@/services/api";
+import { useFocusEffect } from "@react-navigation/native";
 
 export default function CameraScreen({ route, navigation }: any) {
   const params = route.params || {};
   const isGenericRecording = Boolean(params.genericRecording);
-  const locationId = params.locationId ?? params.location?.id;
-  const locationName =
-    params.locationName ?? params.location?.name ?? "Unknown Location";
-  const address = params.address ?? params.location?.address ?? "";
+  const explicitLocationId = params.locationId ?? params.location?.id;
+  const explicitLocationName = params.locationName ?? params.location?.name;
+  const explicitAddress = params.address ?? params.location?.address;
   const jobId = params.jobId ?? params.job?.id;
   const jobTitle = params.jobTitle ?? params.job?.title ?? "Recording";
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
+
+  // Auto mode: cleaner landed on the camera with no explicit location and not
+  // generic — resolve the GPS-nearest assigned location and bind it silently.
+  const isAutoMode = !isGenericRecording && !explicitLocationId;
+  const [autoLocation, setAutoLocation] = useState<{
+    id: string;
+    name: string;
+    address: string;
+  } | null>(null);
+  // 'resolving' → fetching GPS + nearest; 'resolved' → bound; 'no-match' → no
+  // nearby assigned location (or none have coords); 'denied' → no location
+  // permission / no GPS fix (camera disabled until fixed).
+  const [locationResolveStatus, setLocationResolveStatus] = useState<
+    "resolving" | "resolved" | "no-match" | "denied"
+  >(isAutoMode ? "resolving" : "resolved");
+
+  // Effective location used everywhere downstream (explicit param wins, else
+  // the auto-resolved one). Job stays optional.
+  const locationId = explicitLocationId ?? autoLocation?.id;
+  const locationName =
+    explicitLocationName ?? autoLocation?.name ?? "Unknown Location";
+  const address = explicitAddress ?? autoLocation?.address ?? "";
 
   // Permissions
   const {
@@ -154,6 +180,58 @@ export default function CameraScreen({ route, navigation }: any) {
       })
       .catch(() => {});
   }, []);
+
+  // Resolve the GPS-nearest assigned location. Enforces location access: no
+  // permission or no fix → 'denied' (camera disabled). No nearby assigned
+  // location → 'no-match' (prompt to pick from the list).
+  const resolveNearestLocation = useCallback(async (): Promise<void> => {
+    setLocationResolveStatus("resolving");
+    try {
+      const granted = await locationService.requestPermission();
+      if (!granted) {
+        setLocationResolveStatus("denied");
+        return;
+      }
+      const coords = await locationService.getCurrentCoordinates();
+      if (!coords) {
+        setLocationResolveStatus("denied");
+        return;
+      }
+      geoRef.current = coords;
+
+      const locations = await fetchAssignedLocationsForCurrentUser();
+      const nearest = findNearestAssignedLocation(coords, locations);
+      if (nearest) {
+        setAutoLocation({
+          id: nearest.location.id,
+          name: nearest.location.name,
+          address: nearest.location.address ?? "",
+        });
+        setLocationResolveStatus("resolved");
+      } else {
+        setLocationResolveStatus("no-match");
+      }
+    } catch (error) {
+      console.warn("[Camera] Failed to resolve nearest location", error);
+      setLocationResolveStatus("no-match");
+    }
+  }, []);
+
+  // Re-resolve every time the screen gains focus (per decision: refresh on
+  // every app open). Only in auto mode — explicit/generic flows keep their param.
+  useFocusEffect(
+    useCallback(() => {
+      if (!isAutoMode) return;
+      let cancelled = false;
+      // resolveNearestLocation has no external deps; guard against unmount.
+      (async () => {
+        if (!cancelled) await resolveNearestLocation();
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [isAutoMode, resolveNearestLocation]),
+  );
 
   // Initialize upload queue service
   useEffect(() => {
@@ -296,7 +374,11 @@ export default function CameraScreen({ route, navigation }: any) {
   };
   const headerLabel = isGenericRecording
     ? "Generic recording"
-    : truncateAddress(address);
+    : isAutoMode && locationResolveStatus === "resolving"
+      ? "Locating…"
+      : truncateAddress(
+          locationName !== "Unknown Location" ? locationName : address,
+        );
   const canOpenQueueDetails =
     uploadQueue.failed > 0 || uploadQueue.needsAssignment > 0;
 
@@ -412,9 +494,11 @@ export default function CameraScreen({ route, navigation }: any) {
       !videoUri ||
       !user ||
       !segment ||
-      (!isGenericRecording && (!locationId || !jobId))
+      (!isGenericRecording && !locationId)
     ) {
-      console.warn("[Camera] Missing job or segment metadata, skipping queue");
+      console.warn(
+        "[Camera] Missing location or segment metadata, skipping queue",
+      );
       UploadQueueService.logDebug(
         "error",
         "External recording could not be queued because segment metadata was missing",
@@ -438,8 +522,14 @@ export default function CameraScreen({ route, navigation }: any) {
       await UploadQueueService.addToQueue(videoUri, {
         locationId: isGenericRecording ? undefined : locationId,
         locationName: isGenericRecording ? undefined : locationName,
+        // Job is optional: a location-bound recording uploads without one and
+        // gets its job assigned later on the dashboard.
         jobId: isGenericRecording ? undefined : jobId,
-        jobTitle: isGenericRecording ? "Generic recording" : jobTitle,
+        jobTitle: isGenericRecording
+          ? "Generic recording"
+          : jobId
+            ? jobTitle
+            : undefined,
         segmentNumber: segment.segmentNumber,
         startedAt: segment.startedAt,
         endedAt: new Date().toISOString(),
@@ -685,10 +775,10 @@ export default function CameraScreen({ route, navigation }: any) {
   // Start recording session
   const startSession = useCallback(async () => {
     console.log("[Camera] Starting session...");
-    if (!user || (!isGenericRecording && (!locationId || !jobId))) {
+    if (!user || (!isGenericRecording && !locationId)) {
       Alert.alert(
         "Unable to Start",
-        "Missing location or job details for this recording session.",
+        "Missing location for this recording session.",
       );
       return;
     }
@@ -801,6 +891,16 @@ export default function CameraScreen({ route, navigation }: any) {
     startSession();
   };
 
+  // Exit the camera. When it's the stack root (cleaner's home), goBack() is a
+  // no-op — fall back to the Locations list instead.
+  const exitCamera = () => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      navigation.navigate("Locations");
+    }
+  };
+
   // Handle back/close
   const handleClose = () => {
     if (isSessionActive) {
@@ -817,7 +917,7 @@ export default function CameraScreen({ route, navigation }: any) {
             onPress: async () => {
               try {
                 await stopSession();
-                navigation.goBack();
+                exitCamera();
               } catch (error: any) {
                 const friendly = getFriendlyErrorCopy(error, "upload");
                 Alert.alert(friendly.title, friendly.message);
@@ -827,7 +927,7 @@ export default function CameraScreen({ route, navigation }: any) {
         ],
       );
     } else {
-      navigation.goBack();
+      exitCamera();
     }
   };
 
@@ -953,8 +1053,84 @@ export default function CameraScreen({ route, navigation }: any) {
     );
   }
 
-  // Missing location/user
-  if (!user || (!isGenericRecording && (!locationId || !jobId))) {
+  // No authenticated user — can't record at all.
+  if (!user) {
+    return (
+      <View style={[styles.permissionContainer, { paddingTop: insets.top }]}>
+        <StatusBar
+          barStyle="light-content"
+          backgroundColor="transparent"
+          translucent
+        />
+        <Ionicons name="person-outline" size={64} color="#666" />
+        <Text style={styles.permissionTitle}>Account Needed</Text>
+        <Text style={styles.permissionText}>
+          Your account information is missing and the session cannot start.
+        </Text>
+      </View>
+    );
+  }
+
+  // Auto mode: resolving the nearest assigned location.
+  if (isAutoMode && locationResolveStatus === "resolving") {
+    return (
+      <View style={[styles.permissionContainer, { paddingTop: insets.top }]}>
+        <StatusBar
+          barStyle="light-content"
+          backgroundColor="transparent"
+          translucent
+        />
+        <ActivityIndicator size="large" color="#fff" />
+        <Text style={[styles.permissionTitle, { marginTop: 16 }]}>
+          Finding your location
+        </Text>
+        <Text style={styles.permissionText}>
+          Matching you to the nearest assigned location…
+        </Text>
+      </View>
+    );
+  }
+
+  // Auto mode: location access denied / no GPS fix — camera stays disabled.
+  if (isAutoMode && locationResolveStatus === "denied") {
+    return (
+      <View style={[styles.permissionContainer, { paddingTop: insets.top }]}>
+        <StatusBar
+          barStyle="light-content"
+          backgroundColor="transparent"
+          translucent
+        />
+        <Ionicons name="navigate-outline" size={64} color="#666" />
+        <Text style={styles.permissionTitle}>Enable Location</Text>
+        <Text style={styles.permissionText}>
+          Location access is required to match you to a site. Turn it on to
+          start recording.
+        </Text>
+        <TouchableOpacity
+          onPress={resolveNearestLocation}
+          style={styles.permissionButton}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.permissionButtonText}>Enable Location</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => Linking.openSettings()}
+          style={styles.backLink}
+        >
+          <Text style={styles.backLinkText}>Open Settings</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => navigation.navigate("Locations")}
+          style={styles.backLink}
+        >
+          <Text style={styles.backLinkText}>Choose Manually</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // Auto mode: no nearby assigned location (or none have coordinates).
+  if (isAutoMode && locationResolveStatus === "no-match") {
     return (
       <View style={[styles.permissionContainer, { paddingTop: insets.top }]}>
         <StatusBar
@@ -963,17 +1139,48 @@ export default function CameraScreen({ route, navigation }: any) {
           translucent
         />
         <Ionicons name="location-outline" size={64} color="#666" />
-        <Text style={styles.permissionTitle}>Missing Information</Text>
+        <Text style={styles.permissionTitle}>No Nearby Location</Text>
         <Text style={styles.permissionText}>
-          {isGenericRecording
-            ? "Your account information is missing and the session cannot start."
-            : "Location and job information are required to start recording."}
+          We couldn't match you to an assigned location. Pick one to start
+          recording.
         </Text>
         <TouchableOpacity
-          onPress={() => navigation.goBack()}
+          onPress={() => navigation.navigate("Locations")}
+          style={styles.permissionButton}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.permissionButtonText}>Choose Location</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={resolveNearestLocation}
           style={styles.backLink}
         >
-          <Text style={styles.backLinkText}>Go Back</Text>
+          <Text style={styles.backLinkText}>Try Again</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // Fallback: a non-generic flow somehow has no location.
+  if (!isGenericRecording && !locationId) {
+    return (
+      <View style={[styles.permissionContainer, { paddingTop: insets.top }]}>
+        <StatusBar
+          barStyle="light-content"
+          backgroundColor="transparent"
+          translucent
+        />
+        <Ionicons name="location-outline" size={64} color="#666" />
+        <Text style={styles.permissionTitle}>Pick a Location</Text>
+        <Text style={styles.permissionText}>
+          Choose a location to start recording.
+        </Text>
+        <TouchableOpacity
+          onPress={() => navigation.navigate("Locations")}
+          style={styles.permissionButton}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.permissionButtonText}>Choose Location</Text>
         </TouchableOpacity>
       </View>
     );
@@ -1043,6 +1250,19 @@ export default function CameraScreen({ route, navigation }: any) {
               {headerLabel}
             </Text>
           </View>
+
+          {/* Override the auto-bound location — switch sites manually. Hidden
+              mid-session so the binding can't change while recording. */}
+          {!isSessionActive && !isGenericRecording && (
+            <TouchableOpacity
+              onPress={() => navigation.navigate("Locations")}
+              style={styles.closeButton}
+              activeOpacity={0.7}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons name="list" size={20} color="#fff" />
+            </TouchableOpacity>
+          )}
 
           {isSessionActive && (
             <Animated.View
