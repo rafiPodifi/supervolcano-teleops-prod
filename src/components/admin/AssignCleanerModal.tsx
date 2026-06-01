@@ -5,11 +5,11 @@
  * Last updated: 2025-11-26
  */
 
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import { X, UserPlus, Search, Loader } from 'lucide-react';
-import { getAuth } from 'firebase/auth';
+import { useState, useEffect } from "react";
+import { X, UserPlus, Search, Loader } from "lucide-react";
+import { getAuth } from "firebase/auth";
 
 interface User {
   id: string;
@@ -33,8 +33,8 @@ export default function AssignCleanerModal({
   onSuccess,
 }: AssignCleanerModalProps) {
   const [cleaners, setCleaners] = useState<User[]>([]);
-  const [selectedUserId, setSelectedUserId] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedUserId, setSelectedUserId] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadingCleaners, setLoadingCleaners] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -45,93 +45,45 @@ export default function AssignCleanerModal({
 
   const loadCleaners = async () => {
     try {
-      console.log('[Modal] Loading cleaners...');
+      console.log("[Modal] Loading cleaners...");
       setLoadingCleaners(true);
-      
+
       const auth = getAuth();
       const user = auth.currentUser;
       if (!user) {
-        throw new Error('Not authenticated');
+        throw new Error("Not authenticated");
       }
 
       const token = await user.getIdToken();
-      console.log('[Modal] Got auth token');
-      
-      // Fetch all field operators (any role that can be assigned to locations)
-      // For admin, fetch without organization filtering
-      const fieldOperatorRoles = ['location_cleaner', 'oem_teleoperator', 'field_operator'];
-      
-      const allUsers: User[] = [];
-      
-      for (const role of fieldOperatorRoles) {
-        try {
-          const response = await fetch(`/api/admin/users?role=${role}`, {
-            headers: {
-              'Authorization': `Bearer ${token}`,
-            },
-          });
-          
-          if (response.ok) {
-            const data = await response.json();
-            const users = data.users || [];
-            
-            // Transform and add users
-            users.forEach((user: any) => {
-              // Avoid duplicates
-              if (!allUsers.find(u => u.id === user.uid)) {
-                allUsers.push({
-                  id: user.uid,
-                  name: user.displayName || user.firestore?.displayName || user.email?.split('@')[0] || 'Unknown',
-                  email: user.email,
-                  role: user.auth?.role || user.firestore?.role || role,
-                  organizationId: user.auth?.organizationId || user.firestore?.organizationId,
-                });
-              }
-            });
-          }
-        } catch (err) {
-          console.warn(`[Modal] Failed to fetch ${role} users:`, err);
-        }
+
+      // Use /api/admin/cleaners — it derives the Identity Platform tenant from
+      // the bearer token, so it returns the tenant's cleaners. (The previous
+      // /api/admin/users path resolved the tenant from an x-firebase-token
+      // header this modal never sent, so it hit the empty project-level pool.)
+      const response = await fetch("/api/admin/cleaners", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Failed to load cleaners");
       }
-      
-      // Also try fetching all users and filter client-side (backup)
-      if (allUsers.length === 0) {
-        try {
-          const response = await fetch('/api/admin/users', {
-            headers: {
-              'Authorization': `Bearer ${token}`,
-            },
-          });
-          
-          if (response.ok) {
-            const data = await response.json();
-            const users = data.users || [];
-            
-            // Filter to field operator roles
-            users.forEach((user: any) => {
-              const userRole = user.auth?.role || user.firestore?.role || '';
-              if (fieldOperatorRoles.includes(userRole) || userRole.includes('cleaner') || userRole.includes('operator')) {
-                if (!allUsers.find(u => u.id === user.uid)) {
-                  allUsers.push({
-                    id: user.uid,
-                    name: user.displayName || user.firestore?.displayName || user.email?.split('@')[0] || 'Unknown',
-                    email: user.email,
-                    role: userRole,
-                    organizationId: user.auth?.organizationId || user.firestore?.organizationId,
-                  });
-                }
-              }
-            });
-          }
-        } catch (err) {
-          console.warn('[Modal] Failed to fetch all users:', err);
-        }
-      }
-      
-      console.log('[Modal] Total cleaners found:', allUsers.length);
-      setCleaners(allUsers);
+
+      const data = await response.json();
+      const cleanerList: User[] = (data.cleaners || []).map((c: any) => ({
+        id: c.uid,
+        name: c.displayName || c.email?.split("@")[0] || "Unknown",
+        email: c.email,
+        role: "location_cleaner",
+        organizationId: c.organizationId,
+      }));
+
+      console.log("[Modal] Total cleaners found:", cleanerList.length);
+      setCleaners(cleanerList);
     } catch (err: any) {
-      console.error('[Modal] Error loading cleaners:', err);
+      console.error("[Modal] Error loading cleaners:", err);
       setError(err.message);
     } finally {
       setLoadingCleaners(false);
@@ -140,7 +92,7 @@ export default function AssignCleanerModal({
 
   const handleAssign = async () => {
     if (!selectedUserId) {
-      setError('Please select a cleaner');
+      setError("Please select a cleaner");
       return;
     }
 
@@ -150,44 +102,48 @@ export default function AssignCleanerModal({
       const auth = getAuth();
       const user = auth.currentUser;
       if (!user) {
-        throw new Error('Not authenticated');
+        throw new Error("Not authenticated");
       }
 
       const token = await user.getIdToken();
 
       // Determine role based on selected user
-      const selectedUser = cleaners.find(c => c.id === selectedUserId);
-      const workerRole = selectedUser?.role || 'location_cleaner';
+      const selectedUser = cleaners.find((c) => c.id === selectedUserId);
+      const workerRole = selectedUser?.role || "location_cleaner";
 
-      const response = await fetch(`/api/admin/locations/${locationId}/assignments`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+      const response = await fetch(
+        `/api/admin/locations/${locationId}/assignments`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            user_id: selectedUserId,
+            role: workerRole,
+          }),
         },
-        body: JSON.stringify({
-          user_id: selectedUserId,
-          role: workerRole,
-        }),
-      });
+      );
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to assign cleaner');
+        throw new Error(errorData.error || "Failed to assign cleaner");
       }
 
       onSuccess();
     } catch (err: any) {
-      console.error('Error assigning cleaner:', err);
+      console.error("Error assigning cleaner:", err);
       setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const filteredCleaners = cleaners.filter(cleaner =>
-    cleaner.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    cleaner.email?.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredCleaners = cleaners.filter(
+    (cleaner) =>
+      cleaner.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      cleaner.email?.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
   return (
@@ -222,7 +178,10 @@ export default function AssignCleanerModal({
               Search Cleaners
             </label>
             <div className="relative">
-              <Search size={20} className="absolute left-3 top-2.5 text-gray-400" />
+              <Search
+                size={20}
+                className="absolute left-3 top-2.5 text-gray-400"
+              />
               <input
                 type="text"
                 value={searchQuery}
@@ -241,7 +200,7 @@ export default function AssignCleanerModal({
           ) : filteredCleaners.length === 0 ? (
             <div className="text-center py-8">
               <p className="text-gray-500">
-                {searchQuery ? 'No cleaners found' : 'No cleaners available'}
+                {searchQuery ? "No cleaners found" : "No cleaners available"}
               </p>
             </div>
           ) : (
@@ -251,9 +210,10 @@ export default function AssignCleanerModal({
                   key={cleaner.id}
                   className={`
                     flex items-center p-3 border rounded-lg cursor-pointer transition-colors
-                    ${selectedUserId === cleaner.id
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                    ${
+                      selectedUserId === cleaner.id
+                        ? "border-blue-500 bg-blue-50"
+                        : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
                     }
                   `}
                 >
@@ -266,8 +226,12 @@ export default function AssignCleanerModal({
                     className="mr-3 w-4 h-4 text-blue-600 focus:ring-blue-500"
                   />
                   <div className="flex-1">
-                    <div className="font-medium text-gray-900">{cleaner.name || 'Unknown'}</div>
-                    <div className="text-sm text-gray-500">{cleaner.email || ''}</div>
+                    <div className="font-medium text-gray-900">
+                      {cleaner.name || "Unknown"}
+                    </div>
+                    <div className="text-sm text-gray-500">
+                      {cleaner.email || ""}
+                    </div>
                   </div>
                 </label>
               ))}
@@ -302,7 +266,7 @@ export default function AssignCleanerModal({
                 Assigning...
               </>
             ) : (
-              'Assign Cleaner'
+              "Assign Cleaner"
             )}
           </button>
         </div>
@@ -310,4 +274,3 @@ export default function AssignCleanerModal({
     </div>
   );
 }
-
