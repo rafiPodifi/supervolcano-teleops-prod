@@ -12,6 +12,7 @@ import CameraScreen from "../screens/CameraScreen";
 import GenericRecordingHubScreen from "../screens/GenericRecordingHubScreen";
 import GenericPendingUploadsScreen from "../screens/GenericPendingUploadsScreen";
 import FailedUploadsScreen from "../screens/FailedUploadsScreen";
+import RecordingHoursScreen from "../screens/RecordingHoursScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -34,6 +35,7 @@ export default function CleanerNavigator() {
         component={GenericPendingUploadsScreen}
       />
       <Stack.Screen name="FailedUploads" component={FailedUploadsScreen} />
+      <Stack.Screen name="RecordingHours" component={RecordingHoursScreen} />
       <Stack.Screen name="JobSelect" component={JobSelectScreen} />
       <Stack.Screen name="Camera" component={CameraScreen} />
     </Stack.Navigator>

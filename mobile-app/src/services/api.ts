@@ -353,7 +353,12 @@ export async function fetchJobsForLocation(locationId: string): Promise<Job[]> {
 }
 
 /**
- * Save media metadata via teleoperator API (no auth required)
+ * Save media metadata via teleoperator API.
+ *
+ * Auth is best-effort: we attach a fresh ID token and the recording cleaner's
+ * uid so the backend can attribute recording hours. The endpoint still accepts
+ * unauthenticated calls, so a missing/expired token never fails the upload — it
+ * just degrades attribution.
  */
 export async function saveMediaMetadata(data: {
   taskId?: string;
@@ -367,6 +372,7 @@ export async function saveMediaMetadata(data: {
   longitude?: number;
   startedAt?: string;
   endedAt?: string;
+  userId?: string;
 }) {
   try {
     console.log("💾 Saving media metadata...");
@@ -382,13 +388,28 @@ export async function saveMediaMetadata(data: {
       durationSeconds: data.durationSeconds,
     });
 
+    // Resolve uid + a fresh token. Prefer the uid captured at record time
+    // (data.userId); fall back to the currently signed-in user. Token is
+    // fetched fresh so it auto-refreshes if the queued item is retried later.
+    const currentUser = getAuth().currentUser;
+    const userId = data.userId ?? currentUser?.uid;
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    try {
+      const token = await currentUser?.getIdToken();
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+    } catch (error) {
+      console.warn("💾 Could not attach auth token to metadata save", error);
+    }
+
     const response = await fetch(
       `${API_BASE_URL}/api/teleoperator/media/metadata`,
       {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers,
         body: JSON.stringify({
           taskId: data.taskId,
           locationId: data.locationId,
@@ -402,6 +423,7 @@ export async function saveMediaMetadata(data: {
           longitude: data.longitude,
           startedAt: data.startedAt,
           endedAt: data.endedAt,
+          userId,
         }),
       },
     );
