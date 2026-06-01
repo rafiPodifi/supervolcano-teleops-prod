@@ -20,6 +20,9 @@ export default function AdminTeleoperatorsPage() {
   const { user, claims } = useAuth();
   const [teleoperators, setTeleoperators] = useState<Teleoperator[]>([]);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [recordingHours, setRecordingHours] = useState<Record<string, number>>(
+    {},
+  );
   const [loading, setLoading] = useState(true);
   const [loadingOrganizations, setLoadingOrganizations] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -90,12 +93,37 @@ export default function AdminTeleoperatorsPage() {
     }
   }, [user]);
 
+  // Load per-cleaner recording hours, keyed by Firebase uid.
+  const loadRecordingHours = useCallback(async () => {
+    if (!user) return;
+
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch("/api/admin/recording-hours", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const map: Record<string, number> = {};
+        for (const c of data.cleaners || []) {
+          map[c.userId] = c.totalHours;
+        }
+        setRecordingHours(map);
+      }
+    } catch (error) {
+      console.error("Failed to load recording hours:", error);
+    }
+  }, [user]);
+
   useEffect(() => {
     if (!user || !claims) return;
 
     loadTeleoperators();
     loadOrganizations();
-  }, [user, claims, loadTeleoperators, loadOrganizations]);
+    loadRecordingHours();
+  }, [user, claims, loadTeleoperators, loadOrganizations, loadRecordingHours]);
 
   async function handleCreate() {
     if (!user) {
@@ -103,8 +131,15 @@ export default function AdminTeleoperatorsPage() {
       return;
     }
 
-    if (!formData.email || !formData.displayName || !formData.partnerOrgId || !formData.organizationId) {
-      toast.error("Please fill in all required fields (email, display name, partner, and organization)");
+    if (
+      !formData.email ||
+      !formData.displayName ||
+      !formData.partnerOrgId ||
+      !formData.organizationId
+    ) {
+      toast.error(
+        "Please fill in all required fields (email, display name, partner, and organization)",
+      );
       return;
     }
 
@@ -160,19 +195,25 @@ export default function AdminTeleoperatorsPage() {
     }
   }
 
-  async function handleStatusChange(teleoperatorId: string, newStatus: TeleoperatorStatus) {
+  async function handleStatusChange(
+    teleoperatorId: string,
+    newStatus: TeleoperatorStatus,
+  ) {
     if (!user) return;
 
     try {
       const token = await user.getIdToken();
-      const response = await fetch(`/api/v1/teleoperators/${teleoperatorId}/status`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+      const response = await fetch(
+        `/api/v1/teleoperators/${teleoperatorId}/status`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ status: newStatus }),
         },
-        body: JSON.stringify({ status: newStatus }),
-      });
+      );
 
       if (!response.ok) {
         throw new Error("Failed to update status");
@@ -216,7 +257,9 @@ export default function AdminTeleoperatorsPage() {
                 id="email"
                 type="email"
                 value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, email: e.target.value })
+                }
                 placeholder="teleoperator@example.com"
               />
             </div>
@@ -225,7 +268,9 @@ export default function AdminTeleoperatorsPage() {
               <Input
                 id="displayName"
                 value={formData.displayName}
-                onChange={(e) => setFormData({ ...formData, displayName: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, displayName: e.target.value })
+                }
                 placeholder="John Doe"
               />
             </div>
@@ -234,21 +279,27 @@ export default function AdminTeleoperatorsPage() {
               <Input
                 id="partnerOrgId"
                 value={formData.partnerOrgId}
-                onChange={(e) => setFormData({ ...formData, partnerOrgId: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, partnerOrgId: e.target.value })
+                }
                 placeholder="partner-org-123"
               />
             </div>
             <div>
               <Label htmlFor="organizationId">Organization *</Label>
               {loadingOrganizations ? (
-                <p className="text-sm text-gray-500">Loading organizations...</p>
+                <p className="text-sm text-gray-500">
+                  Loading organizations...
+                </p>
               ) : (
                 <select
                   id="organizationId"
                   className="w-full p-2 border rounded"
                   value={formData.organizationId}
                   onChange={(e) => {
-                    const selectedOrg = organizations.find((org) => org.id === e.target.value);
+                    const selectedOrg = organizations.find(
+                      (org) => org.id === e.target.value,
+                    );
                     setFormData({
                       ...formData,
                       organizationId: e.target.value,
@@ -272,7 +323,9 @@ export default function AdminTeleoperatorsPage() {
                 id="phone"
                 type="tel"
                 value={formData.phone}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, phone: e.target.value })
+                }
                 placeholder="+1 (555) 123-4567"
               />
             </div>
@@ -280,7 +333,10 @@ export default function AdminTeleoperatorsPage() {
               <Button onClick={handleCreate} disabled={creating}>
                 {creating ? "Creating..." : "Create"}
               </Button>
-              <Button variant="outline" onClick={() => setShowCreateForm(false)}>
+              <Button
+                variant="outline"
+                onClick={() => setShowCreateForm(false)}
+              >
                 Cancel
               </Button>
             </div>
@@ -318,7 +374,10 @@ export default function AdminTeleoperatorsPage() {
                   className="w-full mt-1 p-2 border rounded"
                   value={teleoperator.currentStatus}
                   onChange={(e) =>
-                    handleStatusChange(teleoperator.teleoperatorId, e.target.value as TeleoperatorStatus)
+                    handleStatusChange(
+                      teleoperator.teleoperatorId,
+                      e.target.value as TeleoperatorStatus,
+                    )
                   }
                 >
                   <option value="available">Available</option>
@@ -328,7 +387,19 @@ export default function AdminTeleoperatorsPage() {
                 </select>
               </div>
               <div className="mt-2 text-sm text-gray-500">
-                Tasks Completed: {teleoperator.tasksCompleted} | Hours: {teleoperator.hoursWorked}
+                Tasks Completed: {teleoperator.tasksCompleted} | Hours:{" "}
+                {teleoperator.hoursWorked}
+              </div>
+              <div className="mt-1 text-sm font-medium text-blue-600">
+                Recording:{" "}
+                {(
+                  recordingHours[
+                    (teleoperator as any).userId ??
+                      (teleoperator as any).uid ??
+                      teleoperator.teleoperatorId
+                  ] ?? 0
+                ).toFixed(1)}
+                h
               </div>
             </CardContent>
           </Card>
@@ -338,11 +409,13 @@ export default function AdminTeleoperatorsPage() {
       {teleoperators.length === 0 && (
         <Card>
           <CardContent className="py-12 text-center text-gray-500">
-            <p>No teleoperators found. Create your first teleoperator to get started.</p>
+            <p>
+              No teleoperators found. Create your first teleoperator to get
+              started.
+            </p>
           </CardContent>
         </Card>
       )}
     </div>
   );
 }
-

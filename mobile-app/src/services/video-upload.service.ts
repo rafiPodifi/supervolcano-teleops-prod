@@ -20,6 +20,9 @@ export interface QueuedUploadInput {
   segmentNumber: number;
   startedAt: string;
   endedAt: string;
+  // Firebase Auth uid of the recording cleaner; forwarded to the metadata
+  // endpoint for per-cleaner recording-hours attribution.
+  userId?: string;
 }
 
 export interface UploadedVideoArtifact {
@@ -99,6 +102,7 @@ export class VideoUploadService {
         longitude: segment.longitude,
         startedAt: segment.startedAt,
         endedAt: segment.endedAt,
+        userId: segment.userId,
       });
       onStage?.({
         stage: "completed",

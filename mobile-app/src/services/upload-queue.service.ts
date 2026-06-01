@@ -10,6 +10,7 @@ import NetInfo from "@react-native-community/netinfo";
 import * as BackgroundFetch from "expo-background-fetch";
 import * as TaskManager from "expo-task-manager";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
+import { getAuth } from "firebase/auth";
 import {
   AppState,
   AppStateStatus,
@@ -60,6 +61,10 @@ export interface QueuedVideo {
   segmentNumber: number;
   startedAt: string;
   endedAt: string;
+  // Firebase Auth uid of the cleaner who recorded this segment. Captured at
+  // enqueue so it survives the offline queue and a later logout/login on the
+  // device. Drives per-cleaner recording-hours attribution on the backend.
+  userId?: string;
   createdAt: string;
   updatedAt: string;
   retryCount: number;
@@ -246,6 +251,9 @@ class UploadQueueServiceClass {
     const hasAssignment = Boolean(payload.locationId);
     const recordingMode =
       payload.recordingMode ?? (hasAssignment ? "assigned" : "generic");
+    // Stamp the recording cleaner now; the queue may drain hours later when a
+    // different user could be signed in.
+    const userId = getAuth().currentUser?.uid;
 
     try {
       const sourceFileInfo = await FileSystem.getInfoAsync(
@@ -280,6 +288,7 @@ class UploadQueueServiceClass {
         segmentNumber: payload.segmentNumber,
         startedAt: payload.startedAt,
         endedAt: payload.endedAt,
+        userId,
         createdAt: now,
         updatedAt: now,
         retryCount: 0,
@@ -556,6 +565,7 @@ class UploadQueueServiceClass {
         segmentNumber: video.segmentNumber,
         startedAt: video.startedAt,
         endedAt: video.endedAt,
+        userId: video.userId,
       };
 
       const handleStage = (event: {
@@ -734,6 +744,7 @@ class UploadQueueServiceClass {
       segmentNumber: item.segmentNumber,
       startedAt: item.startedAt,
       endedAt: item.endedAt,
+      userId: item.userId,
       createdAt: item.createdAt || now,
       updatedAt: item.updatedAt || item.createdAt || now,
       retryCount: item.retryCount ?? 0,

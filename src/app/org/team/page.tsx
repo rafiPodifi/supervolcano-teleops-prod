@@ -16,6 +16,9 @@ export default function OrgTeamPage() {
   const { user, claims, getIdToken } = useAuth();
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [teleoperators, setTeleoperators] = useState<any[]>([]);
+  const [recordingHours, setRecordingHours] = useState<Record<string, number>>(
+    {},
+  );
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -52,6 +55,25 @@ export default function OrgTeamPage() {
           const dashboardData = await dashboardResponse.json();
           setTeleoperators(dashboardData.data?.teleoperators || []);
         }
+
+        // Per-cleaner recording hours, keyed by Firebase uid for joining onto
+        // the team cards below.
+        const hoursResponse = await fetch(
+          `/api/v1/organizations/${claims.organizationId}/recording-hours`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+        );
+        if (hoursResponse.ok) {
+          const hoursData = await hoursResponse.json();
+          const map: Record<string, number> = {};
+          for (const c of hoursData.cleaners || []) {
+            map[c.userId] = c.totalHours;
+          }
+          setRecordingHours(map);
+        }
       } catch (error) {
         console.error("Failed to load team data:", error);
       } finally {
@@ -79,7 +101,9 @@ export default function OrgTeamPage() {
       {teleoperators.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">
-            <p className="text-gray-600">No team members in this organization yet.</p>
+            <p className="text-gray-600">
+              No team members in this organization yet.
+            </p>
           </CardContent>
         </Card>
       ) : (
@@ -88,7 +112,11 @@ export default function OrgTeamPage() {
             <Card key={teleop.id || teleop.teleoperatorId}>
               <CardHeader>
                 <CardTitle className="flex items-center justify-between">
-                  <span>{teleop.displayName || teleop.email?.split("@")[0] || "Unknown"}</span>
+                  <span>
+                    {teleop.displayName ||
+                      teleop.email?.split("@")[0] ||
+                      "Unknown"}
+                  </span>
                   <Badge
                     variant={
                       teleop.status === "available"
@@ -119,9 +147,26 @@ export default function OrgTeamPage() {
                     <div>
                       <p className="text-sm text-gray-600">Avg Duration</p>
                       <p className="text-2xl font-bold">
-                        {teleop.avgDuration ? `${Math.round(teleop.avgDuration)} min` : "N/A"}
+                        {teleop.avgDuration
+                          ? `${Math.round(teleop.avgDuration)} min`
+                          : "N/A"}
                       </p>
                     </div>
+                  </div>
+
+                  <div className="pt-3 border-t">
+                    <p className="text-sm text-gray-600">Recording Hours</p>
+                    <p className="text-2xl font-bold text-blue-600">
+                      {(
+                        recordingHours[
+                          teleop.uid ??
+                            teleop.userId ??
+                            teleop.id ??
+                            teleop.teleoperatorId
+                        ] ?? 0
+                      ).toFixed(1)}
+                      h
+                    </p>
                   </div>
 
                   {teleop.successRate !== undefined && (
@@ -141,5 +186,3 @@ export default function OrgTeamPage() {
     </div>
   );
 }
-
-
