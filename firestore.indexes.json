@@ -99,6 +99,14 @@
         { "fieldPath": "locationId", "order": "ASCENDING" },
         { "fieldPath": "recordedAt", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "media",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "locationId", "order": "ASCENDING" },
+        { "fieldPath": "uploadedAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
