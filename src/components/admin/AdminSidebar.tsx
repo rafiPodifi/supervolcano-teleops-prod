@@ -12,6 +12,7 @@ import {
   GraduationCap,
   Package,
   Settings,
+  SprayCan,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -36,6 +37,7 @@ const navGroups: NavGroup[] = [
     items: [
       { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
       { label: "Users", href: "/admin/users", icon: Users },
+      { label: "Cleaners", href: "/admin/cleaners", icon: SprayCan },
       { label: "Organizations", href: "/admin/organizations", icon: Building2 },
       { label: "Locations", href: "/admin/locations", icon: MapPin },
     ],

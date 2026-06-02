@@ -15,6 +15,7 @@ import {
   GraduationCap,
   Upload,
   Package,
+  SprayCan,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -23,6 +24,7 @@ import { useAuth } from "@/hooks/useAuth";
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { label: "Users", href: "/admin/users", icon: Users },
+  { label: "Cleaners", href: "/admin/cleaners", icon: SprayCan },
   { label: "Organizations", href: "/admin/organizations", icon: Building2 },
   { label: "Locations", href: "/admin/locations", icon: MapPin },
   {
