@@ -4,19 +4,21 @@ Project documentation tree.
 
 ## Structure
 
-| Path | Contents |
-|---|---|
-| `architecture/` | System architecture, schemas, performance |
-| `runbooks/` | Setup, deployment, troubleshooting, security |
-| `features/` | Per-feature implementation checklists |
-| `testing/` | Test plans + accounts |
-| `product/` | Product FAQs, demo scripts, readiness reports |
-| `archive/` | Obsolete docs preserved for history |
-| `examples/` | Robot API code samples (Python, JS, bash) |
+| Path            | Contents                                      |
+| --------------- | --------------------------------------------- |
+| `architecture/` | System architecture, schemas, performance     |
+| `runbooks/`     | Setup, deployment, troubleshooting, security  |
+| `features/`     | Per-feature implementation checklists         |
+| `testing/`      | Test plans + accounts                         |
+| `product/`      | Product FAQs, demo scripts, readiness reports |
+| `archive/`      | Obsolete docs preserved for history           |
+| `examples/`     | Robot API code samples (Python, JS, bash)     |
 
 ## Robot API quick start
 
-API base URL: `https://supervolcano-teleops.vercel.app/api/robot`
+API base URL: `https://<supervolcano-web-prod-cloud-run-url>/api/robot`
+(the production Cloud Run service URL — ask the SuperVolcano team for the
+current hostname or custom domain; the legacy `*.vercel.app` host is retired).
 
 API keys are issued separately — request from the SuperVolcano team. Never
 commit keys to this repo. All requests require:
@@ -36,13 +38,13 @@ Postman collection at `product/SuperVolcano_Robot_API.postman_collection.json`.
 
 ## Endpoints (summary)
 
-| Endpoint | Method | Description |
-|---|---|---|
-| `/api/robot/health` | GET | API liveness |
-| `/api/robot/jobs` | GET | List jobs |
-| `/api/robot/locations` | GET | List locations |
-| `/api/robot/locations/{id}/jobs` | GET | Jobs for a location |
-| `/api/robot/jobs/{id}/videos` | GET | Instructional videos for a job |
+| Endpoint                         | Method | Description                    |
+| -------------------------------- | ------ | ------------------------------ |
+| `/api/robot/health`              | GET    | API liveness                   |
+| `/api/robot/jobs`                | GET    | List jobs                      |
+| `/api/robot/locations`           | GET    | List locations                 |
+| `/api/robot/locations/{id}/jobs` | GET    | Jobs for a location            |
+| `/api/robot/jobs/{id}/videos`    | GET    | Instructional videos for a job |
 
 Robot endpoints are PostgreSQL-replica-backed; see `architecture/data-layer.md`.
 
