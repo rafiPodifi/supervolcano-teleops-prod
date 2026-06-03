@@ -95,6 +95,33 @@ class LocationService {
   }
 
   /**
+   * Last-known coordinates — returns instantly from the OS cache (no fresh GPS
+   * fix). May be null/stale, but lets the camera bind a nearest location
+   * immediately while a precise fix resolves in the background. Does not prompt
+   * for permission; only reads if already granted.
+   */
+  async getLastKnownCoordinates(): Promise<{
+    latitude: number;
+    longitude: number;
+  } | null> {
+    try {
+      const { status } = await Location.getForegroundPermissionsAsync();
+      if (status !== "granted") return null;
+
+      const last = await Location.getLastKnownPositionAsync();
+      if (!last) return null;
+
+      return {
+        latitude: last.coords.latitude,
+        longitude: last.coords.longitude,
+      };
+    } catch (error) {
+      console.warn("[Location] Last-known coords error:", error);
+      return null;
+    }
+  }
+
+  /**
    * Reverse geocode coordinates to address
    */
   async reverseGeocode(

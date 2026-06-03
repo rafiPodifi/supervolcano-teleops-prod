@@ -42,7 +42,10 @@ import {
   locationService,
   findNearestAssignedLocation,
 } from "@/services/location.service";
-import { fetchAssignedLocationsForCurrentUser } from "@/services/api";
+import {
+  getAssignedLocationsCacheFirst,
+  refreshAssignedLocationsInBackground,
+} from "@/services/api";
 import { useFocusEffect } from "@react-navigation/native";
 
 export default function CameraScreen({ route, navigation }: any) {
@@ -185,35 +188,77 @@ export default function CameraScreen({ route, navigation }: any) {
   // permission or no fix → 'denied' (camera disabled). No nearby assigned
   // location → 'no-match' (prompt to pick from the list).
   const resolveNearestLocation = useCallback(async (): Promise<void> => {
-    setLocationResolveStatus("resolving");
     try {
       const granted = await locationService.requestPermission();
       if (!granted) {
         setLocationResolveStatus("denied");
         return;
       }
-      const coords = await locationService.getCurrentCoordinates();
+
+      // Fast path: last-known GPS (instant, no fix) + cached list → bind now so
+      // the camera is usable without waiting on a fresh fix or the network.
+      const fastCoords =
+        (await locationService.getLastKnownCoordinates()) ?? geoRef.current;
+      const cache = await getAssignedLocationsCacheFirst();
+      let boundFromCache = false;
+      if (fastCoords && cache.locations.length > 0) {
+        const nearest = findNearestAssignedLocation(
+          fastCoords,
+          cache.locations,
+        );
+        if (nearest) {
+          geoRef.current = fastCoords;
+          setAutoLocation({
+            id: nearest.location.id,
+            name: nearest.location.name,
+            address: nearest.location.address ?? "",
+          });
+          setLocationResolveStatus("resolved");
+          boundFromCache = true;
+        }
+      }
+
+      // Only spin if nothing could be bound yet (genuine cold start).
+      if (!boundFromCache) setLocationResolveStatus("resolving");
+
+      // Background: precise GPS fix, plus a list refresh only when the cache is
+      // stale or we had nothing to bind. Re-bind only if the nearest changed.
+      const [freshCoords, freshLocations] = await Promise.all([
+        locationService.getCurrentCoordinates(),
+        cache.stale || !boundFromCache
+          ? refreshAssignedLocationsInBackground()
+          : Promise.resolve(cache.locations),
+      ]);
+
+      const coords = freshCoords ?? fastCoords;
       if (!coords) {
-        setLocationResolveStatus("denied");
+        if (!boundFromCache) setLocationResolveStatus("denied");
         return;
       }
       geoRef.current = coords;
 
-      const locations = await fetchAssignedLocationsForCurrentUser();
-      const nearest = findNearestAssignedLocation(coords, locations);
+      const list = freshLocations.length ? freshLocations : cache.locations;
+      const nearest = findNearestAssignedLocation(coords, list);
       if (nearest) {
-        setAutoLocation({
-          id: nearest.location.id,
-          name: nearest.location.name,
-          address: nearest.location.address ?? "",
-        });
+        setAutoLocation((prev) =>
+          prev?.id === nearest.location.id
+            ? prev
+            : {
+                id: nearest.location.id,
+                name: nearest.location.name,
+                address: nearest.location.address ?? "",
+              },
+        );
         setLocationResolveStatus("resolved");
-      } else {
+      } else if (!boundFromCache) {
         setLocationResolveStatus("no-match");
       }
     } catch (error) {
       console.warn("[Camera] Failed to resolve nearest location", error);
-      setLocationResolveStatus("no-match");
+      // Keep a cache-bound location if we have one; only fail hard on cold start.
+      setLocationResolveStatus((prev) =>
+        prev === "resolved" ? prev : "no-match",
+      );
     }
   }, []);
 

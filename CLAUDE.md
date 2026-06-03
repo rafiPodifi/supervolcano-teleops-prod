@@ -18,18 +18,33 @@ Run from the repository root.
 
 ```bash
 pnpm run dev         # Start Next.js dev server (localhost:3000)
+pnpm run dev:debug   # dev with NEXT_PUBLIC_FIRESTORE_DEBUG=true
 pnpm run build       # Type-check + production build
 pnpm run lint        # ESLint (next/core-web-vitals)
 pnpm run format      # Prettier across all files
 
-# Admin utilities (run against live Firebase)
+# Admin / user utilities (tsx scripts in scripts/, run against live Firebase)
 pnpm run set-admin                            # Promote user to admin
 pnpm run create:org-manager <email> <pw>      # Create an org manager
 pnpm run create:teleoperator <email> <pw> <orgId>
 pnpm run assign:manager "<org name>" <email> <pw>
-pnpm run db:schema                            # Apply PostgreSQL schema
+pnpm run reset:password                       # Reset a teleoperator password
+pnpm run list-users                           # List Identity Platform users
+pnpm run check-locations                      # Inspect location docs (coords sanity)
+pnpm run setup:test                           # Seed test data
 pnpm run deploy-rules                         # Deploy Firebase security rules
+pnpm run show-rules                           # Print deployed Firebase rules
+
+# PostgreSQL (robot corpus) — schema + Drizzle Kit
+pnpm run db:schema                            # Apply raw SQL schema (scripts/run-schema.ts)
+pnpm run db:pull / db:generate / db:migrate   # drizzle-kit (drizzle.config.ts)
+pnpm run db:studio                            # Drizzle Studio
 ```
+
+Drizzle Kit (`drizzle.config.ts`, `drizzle/`) is used for Postgres
+introspection/migrations only. Application code still accesses Postgres via the
+raw `sql` template tag (`src/lib/db/postgres.ts`), **not** the Drizzle ORM —
+see Database Rules below.
 
 Both the web project and `mobile-app/` use pnpm (pinned via `packageManager`
 field). Run `corepack enable` once so the pinned pnpm version is used
@@ -50,13 +65,16 @@ There are no unit tests. CI (`.github/workflows/ci.yml`) runs `tsc --noEmit`
 Run from `mobile-app/`.
 
 ```bash
-pnpm exec expo start            # Start Expo dev server (requires Expo Go or dev client)
-pnpm exec expo start --tunnel   # Tunnel mode for physical device on different network
-pnpm exec expo run:android      # Build and run on connected Android device/emulator
+pnpm start            # Start Expo dev server (custom dev client, not plain Expo Go)
+pnpm run start:tunnel # Tunnel mode for physical device on different network
+pnpm run android      # Build and run on connected Android device/emulator (expo run:android)
 
-# EAS cloud builds
-pnpm run eas:build:android   # Android preview build via EAS
-pnpm run eas:build:ios       # iOS preview build via EAS
+# EAS cloud builds (all preview profile)
+pnpm run eas:build:android   # Android preview build
+pnpm run eas:build:ios       # iOS preview build
+pnpm run eas:build:all       # Both platforms
+pnpm run eas:build:list      # List recent EAS builds
+pnpm run eas:device:create   # Register a device for internal distribution
 pnpm run eas:update          # OTA update to preview branch
 ```
 
@@ -140,6 +158,14 @@ Three distinct portals within the same Next.js app:
 - **`/api/robot/v1/*`** — Robot Intelligence API. PostgreSQL-backed only.
 
 Root `/` redirects to `/login` (configured in `next.config.mjs`).
+
+API route groups under `src/app/api/`: `admin`, `org`, `mobile`,
+`teleoperator`, `users`, `auth`, `session`, `locations`, `taxonomy`, `cron`,
+`robot`, `robot-intelligence`, `v1`. All are **Firestore-backed (`adminDb`)
+except `robot`** (`/api/robot/v1/*`, the only PostgreSQL group — see Database
+Rules). `robot-intelligence` and `v1` are Firestore. The lone Postgres write
+outside `robot` is the admin Video Intelligence pipeline. `cron` routes verify
+Cloud Scheduler OIDC tokens (see Runtime credential model).
 
 ### Role System
 

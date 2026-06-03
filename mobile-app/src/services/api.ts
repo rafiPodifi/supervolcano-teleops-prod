@@ -22,16 +22,22 @@ interface CacheEnvelope<T> {
   data: T;
 }
 
-async function readCache<T>(key: string): Promise<T | null> {
+async function readCacheEnvelope<T>(
+  key: string,
+): Promise<CacheEnvelope<T> | null> {
   try {
     const raw = await AsyncStorage.getItem(key);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as CacheEnvelope<T>;
-    return parsed?.data ?? null;
+    return JSON.parse(raw) as CacheEnvelope<T>;
   } catch (error) {
     console.warn(`[cache] read failed for ${key}`, error);
     return null;
   }
+}
+
+async function readCache<T>(key: string): Promise<T | null> {
+  const envelope = await readCacheEnvelope<T>(key);
+  return envelope?.data ?? null;
 }
 
 async function writeCache<T>(key: string, data: T): Promise<void> {
@@ -43,64 +49,143 @@ async function writeCache<T>(key: string, data: T): Promise<void> {
   }
 }
 
+/**
+ * Assigned-location lists change rarely, so a cache younger than this is
+ * treated as fresh and the background revalidate is skipped.
+ */
+const LOCATIONS_TTL_MS = 15 * 60 * 1000;
+
+// In-memory layer on top of AsyncStorage: skips a disk round-trip on rapid
+// re-focus, and `inflightLocations` collapses concurrent callers (e.g. a focus
+// re-resolve racing a Locations-list open) onto a single network request.
+const memoryLocations = new Map<string, CacheEnvelope<Location[]>>();
+const inflightLocations = new Map<string, Promise<Location[]>>();
+
+export interface CachedLocationsResult {
+  locations: Location[];
+  /** Served from memory/disk without hitting the network this call. */
+  fromCache: boolean;
+  /** Cache is older than the TTL (or absent) — caller should revalidate. */
+  stale: boolean;
+}
+
+/**
+ * Read assigned locations from cache only (memory → disk), no network. Lets the
+ * camera bind a location instantly on focus; pair with
+ * `refreshAssignedLocationsInBackground` to revalidate when `stale`.
+ */
+export async function getAssignedLocationsCacheFirst(): Promise<CachedLocationsResult> {
+  const currentUser = getAuth().currentUser;
+  if (!currentUser) return { locations: [], fromCache: false, stale: true };
+
+  const uid = currentUser.uid;
+  let envelope: CacheEnvelope<Location[]> | null =
+    memoryLocations.get(uid) ?? null;
+
+  if (!envelope) {
+    envelope = await readCacheEnvelope<Location[]>(
+      `${LOCATIONS_CACHE_PREFIX}${uid}`,
+    );
+    if (envelope) memoryLocations.set(uid, envelope);
+  }
+
+  if (!envelope) return { locations: [], fromCache: false, stale: true };
+
+  const stale = Date.now() - envelope.cachedAt > LOCATIONS_TTL_MS;
+  return { locations: envelope.data, fromCache: true, stale };
+}
+
+/**
+ * Network fetch of assigned locations, de-duplicated per uid and writing both
+ * cache layers. On failure falls back to the last good snapshot (memory →
+ * disk) so the cleaner never sees an empty list on a flaky connection.
+ */
+function revalidateAssignedLocations(
+  currentUser: NonNullable<ReturnType<typeof getAuth>["currentUser"]>,
+): Promise<Location[]> {
+  const uid = currentUser.uid;
+  const existing = inflightLocations.get(uid);
+  if (existing) return existing;
+
+  const cacheKey = `${LOCATIONS_CACHE_PREFIX}${uid}`;
+  const promise = (async () => {
+    try {
+      const token = await currentUser.getIdToken();
+      const response = await fetch(
+        `${API_BASE_URL}/api/users/${uid}/assigned-locations`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+
+      const data = await response.json();
+      if (!data.success || !Array.isArray(data.assignments)) {
+        // Server reachable but payload empty / malformed — prefer the last
+        // good snapshot over an empty list.
+        const cached =
+          memoryLocations.get(uid)?.data ??
+          (await readCache<Location[]>(cacheKey));
+        return cached ?? [];
+      }
+
+      const locations = data.assignments.map((assignment: any) => ({
+        id: assignment.location_id,
+        name: assignment.location_name || "Unnamed Location",
+        address: assignment.location_address || "",
+        assignedOrganizationName: "",
+        latitude:
+          typeof assignment.latitude === "number"
+            ? assignment.latitude
+            : undefined,
+        longitude:
+          typeof assignment.longitude === "number"
+            ? assignment.longitude
+            : undefined,
+      })) as Location[];
+
+      memoryLocations.set(uid, { cachedAt: Date.now(), data: locations });
+      await writeCache(cacheKey, locations);
+      return locations;
+    } catch (error) {
+      console.error(
+        "❌ Failed to fetch current user assigned locations:",
+        error,
+      );
+      const cached =
+        memoryLocations.get(uid)?.data ??
+        (await readCache<Location[]>(cacheKey));
+      if (cached) {
+        console.log(`📦 Serving ${cached.length} cached locations (offline)`);
+        return cached;
+      }
+      return [];
+    } finally {
+      inflightLocations.delete(uid);
+    }
+  })();
+
+  inflightLocations.set(uid, promise);
+  return promise;
+}
+
+/**
+ * Trigger a network revalidate without blocking the caller's UI on it. Reuses
+ * the in-flight request if one is already running. Returns the fresh list.
+ */
+export function refreshAssignedLocationsInBackground(): Promise<Location[]> {
+  const currentUser = getAuth().currentUser;
+  if (!currentUser) return Promise.resolve([]);
+  return revalidateAssignedLocations(currentUser);
+}
+
+/**
+ * Network-first fetch (writes cache). Kept for callers that want the freshest
+ * list and can wait — e.g. the manual Locations list and pending-uploads.
+ */
 export async function fetchAssignedLocationsForCurrentUser(): Promise<
   Location[]
 > {
-  const auth = getAuth();
-  const currentUser = auth.currentUser;
-
-  if (!currentUser) {
-    return [];
-  }
-
-  const cacheKey = `${LOCATIONS_CACHE_PREFIX}${currentUser.uid}`;
-
-  try {
-    const token = await currentUser.getIdToken();
-    const response = await fetch(
-      `${API_BASE_URL}/api/users/${currentUser.uid}/assigned-locations`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      },
-    );
-
-    const data = await response.json();
-    if (!data.success || !Array.isArray(data.assignments)) {
-      // Server reachable but payload empty / malformed — prefer the last
-      // good snapshot over an empty list so the cleaner doesn't see "No
-      // locations" on a flaky response.
-      const cached = await readCache<Location[]>(cacheKey);
-      return cached ?? [];
-    }
-
-    const locations = data.assignments.map((assignment: any) => ({
-      id: assignment.location_id,
-      name: assignment.location_name || "Unnamed Location",
-      address: assignment.location_address || "",
-      assignedOrganizationName: "",
-      latitude:
-        typeof assignment.latitude === "number"
-          ? assignment.latitude
-          : undefined,
-      longitude:
-        typeof assignment.longitude === "number"
-          ? assignment.longitude
-          : undefined,
-    })) as Location[];
-
-    await writeCache(cacheKey, locations);
-    return locations;
-  } catch (error) {
-    console.error("❌ Failed to fetch current user assigned locations:", error);
-    const cached = await readCache<Location[]>(cacheKey);
-    if (cached) {
-      console.log(`📦 Serving ${cached.length} cached locations (offline)`);
-      return cached;
-    }
-    return [];
-  }
+  const currentUser = getAuth().currentUser;
+  if (!currentUser) return [];
+  return revalidateAssignedLocations(currentUser);
 }
 
 /**
