@@ -185,10 +185,7 @@ async function auditPartnerIdUsage() {
 
   // Save detailed report
   const reportPath = path.join(projectRoot, "partner-id-audit-report.json");
-  fs.writeFileSync(
-    reportPath,
-    JSON.stringify({ references, byType }, null, 2),
-  );
+  fs.writeFileSync(reportPath, JSON.stringify({ references, byType }, null, 2));
   console.log(`📄 Detailed report saved to: ${reportPath}\n`);
 }
 
@@ -196,4 +193,3 @@ auditPartnerIdUsage().catch((error) => {
   console.error("Audit failed:", error);
   process.exit(1);
 });
-
