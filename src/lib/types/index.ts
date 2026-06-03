@@ -111,8 +111,16 @@ export interface Location {
 // LOCATION INSTRUCTIONS (Subcollection)
 // ============================================================================
 
-export type InstructionCategory = "cleaning" | "organization" | "maintenance" | "security" | "other";
-export type InstructionScope = "room-level" | "appliance-level" | "object-level";
+export type InstructionCategory =
+  | "cleaning"
+  | "organization"
+  | "maintenance"
+  | "security"
+  | "other";
+export type InstructionScope =
+  | "room-level"
+  | "appliance-level"
+  | "object-level";
 
 export interface LocationInstruction {
   instructionId: string; // UUID
@@ -146,8 +154,18 @@ export interface LocationInstruction {
 // TASKS (Work Orders)
 // ============================================================================
 
-export type TaskStatus = "unassigned" | "assigned" | "in-progress" | "completed" | "cancelled";
-export type TaskType = "cleaning" | "inspection" | "delivery" | "maintenance" | "other";
+export type TaskStatus =
+  | "unassigned"
+  | "assigned"
+  | "in-progress"
+  | "completed"
+  | "cancelled";
+export type TaskType =
+  | "cleaning"
+  | "inspection"
+  | "delivery"
+  | "maintenance"
+  | "other";
 
 export interface Task {
   taskId: string; // UUID
@@ -300,25 +318,25 @@ export interface TaskCompletion {
   organizationId: string; // FK to organizations
   teleoperatorId: string; // FK to teleoperators
   teleoperatorName: string; // Denormalized for display
-  
+
   // Task details (denormalized for querying)
   taskTitle: string;
   taskCategory?: string;
   estimatedDuration?: number; // minutes
-  
+
   // Location details (denormalized)
   locationName: string;
-  
+
   // Timing
   startedAt: Date | string | { toDate: () => Date; toMillis: () => number };
   completedAt: Date | string | { toDate: () => Date; toMillis: () => number };
   actualDuration: number; // minutes
-  
+
   // Quality
   status: TaskCompletionStatus;
   notes?: string;
   issuesEncountered?: string;
-  
+
   // Metadata
   createdAt: Date | string | { toDate: () => Date; toMillis: () => number };
 }
@@ -327,7 +345,17 @@ export interface TaskCompletion {
 // AUTH & PERMISSIONS
 // ============================================================================
 
-export type UserRole = "superadmin" | "admin" | "partner_admin" | "org_manager" | "oem_teleoperator";
+// NOTE: this is a narrower, B2B-only UserRole (used by the v1 API + operator
+// portal) and DIVERGES from the canonical 8-role union in
+// `@/domain/user/user.types` — it omits partner_manager / location_owner /
+// location_cleaner. Not unified here on purpose: widening it could change
+// requireRole / switch narrowing in v1 routes. Reconcile in a dedicated pass.
+export type UserRole =
+  | "superadmin"
+  | "admin"
+  | "partner_admin"
+  | "org_manager"
+  | "oem_teleoperator";
 
 export interface UserClaims {
   role: UserRole;
@@ -433,4 +461,3 @@ export type SVTask = {
   updatedAt?: TimestampLike;
   assignedToUserId?: string | null;
 };
-
