@@ -106,6 +106,12 @@ GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END P
 
 **⚠️ Security Note**: Never commit `.env.local` to version control. The admin private key should retain literal `\n` characters. When copying from a JSON service account, surround the value with quotes and keep `\n` escapes.
 
+> **Note:** The `FIREBASE_ADMIN_*` / `GOOGLE_SERVICE_ACCOUNT_*` keys and `CRON_SECRET`
+> above are for **local development only**. On Cloud Run, the app uses Application
+> Default Credentials (the service account), secrets come from Secret Manager, and
+> cron routes verify Cloud Scheduler OIDC tokens — not these env vars. See `CLAUDE.md`
+> → Runtime credential model.
+
 ### Optional: Google Drive Sync
 
 To enable Google Drive folder sync in the Data Intelligence dashboard, see [GOOGLE_DRIVE_SETUP.md](./GOOGLE_DRIVE_SETUP.md) for detailed setup instructions.
@@ -262,22 +268,17 @@ pnpm run reset:password <email>
 
 ## Deployment
 
-### Vercel (Recommended)
+The web app, API, Postgres, and auth run on **Google Cloud Platform** (single
+client-owned project, two isolated envs: staging + prod). Deployment is fully
+automated via GitHub Actions:
 
-1. Push repository to GitHub/GitLab
-2. Import project into Vercel
-3. Set environment variables in Vercel → Settings → Environment Variables
-4. Deploy automatically on push to main branch
+- **staging** — Cloud Run service `supervolcano-web-staging`, deploys on push to `main`
+- **prod** — Cloud Run service `supervolcano-web-prod`, deploys on `v*` git tags behind a manual approval gate
 
-### Other Platforms
-
-The application can be deployed to any platform that supports Next.js:
-
-- Vercel (recommended)
-- Netlify
-- AWS Amplify
-- Railway
-- Self-hosted with Node.js
+CI auth is keyless (Workload Identity Federation); infra is Terraform in
+`infra/terraform/`. There is no Vercel/Neon anymore. See the **Deployment &
+Infrastructure (GCP)** section in `CLAUDE.md` for the full environment model,
+the `NEXT_PUBLIC_*` build-time gotcha, and the runtime credential model.
 
 ## Performance Optimizations
 

@@ -274,62 +274,6 @@ export default function AdminPropertiesPage() {
     );
   }, [properties, searchValue]);
 
-  // Use ref to track if we've already set the initial property to prevent loops
-  const hasSetInitialProperty = useRef(false);
-  const lastPropertyIdsString = useRef<string>("");
-  const isSettingProperty = useRef(false);
-
-  // Only update selectedPropertyId when property IDs actually change (not on every render)
-  // DISABLED: This was causing infinite loops. Manual selection only now.
-  // useEffect(() => {
-  //   if (isSettingProperty.current) return; // Prevent re-entry
-  //   if (!filteredProperties.length) {
-  //     hasSetInitialProperty.current = false;
-  //     lastPropertyIdsString.current = "";
-  //     return;
-  //   }
-  //
-  //   // Create stable ID string to compare (only IDs, not full objects)
-  //   const currentPropertyIds = filteredProperties.map(p => p.id).sort().join(",");
-  //   const idsChanged = currentPropertyIds !== lastPropertyIdsString.current;
-  //
-  //   // Only proceed if IDs actually changed (not just array reference)
-  //   if (!idsChanged && hasSetInitialProperty.current) {
-  //     return;
-  //   }
-  //
-  //   // Update the ref
-  //   lastPropertyIdsString.current = currentPropertyIds;
-  //
-  //   // Only set initial property once when properties first load AND no property is selected
-  //   if (!hasSetInitialProperty.current && !selectedPropertyId && filteredProperties.length > 0) {
-  //     isSettingProperty.current = true;
-  //     const firstPropertyId = filteredProperties[0]?.id;
-  //     if (firstPropertyId) {
-  //       hasSetInitialProperty.current = true;
-  //       setSelectedPropertyId(firstPropertyId);
-  //       setActiveTab("summary");
-  //     }
-  //     setTimeout(() => { isSettingProperty.current = false; }, 100);
-  //     return;
-  //   }
-  //
-  //   // Only update if selected property doesn't exist in current list (and we've already set initial)
-  //   if (hasSetInitialProperty.current && selectedPropertyId) {
-  //     const currentSelectedExists = filteredProperties.some((property) => property.id === selectedPropertyId);
-  //     if (!currentSelectedExists && filteredProperties.length > 0) {
-  //       isSettingProperty.current = true;
-  //       const firstPropertyId = filteredProperties[0]?.id;
-  //       if (firstPropertyId && firstPropertyId !== selectedPropertyId) {
-  //         setSelectedPropertyId(firstPropertyId);
-  //         setActiveTab("summary");
-  //       }
-  //       setTimeout(() => { isSettingProperty.current = false; }, 100);
-  //     }
-  //   }
-  //   // eslint-disable-next-line react-hooks/exhaustive-deps
-  // }, [filteredProperties.length]); // Only depend on length - removed selectedPropertyId to prevent loops
-
   const operatorTaskCount = useMemo(() => {
     return tasks.filter((task) => task.assignment === "oem_teleoperator")
       .length;
