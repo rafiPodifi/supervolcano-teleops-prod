@@ -11,6 +11,7 @@ import {
   Text,
   FlatList,
   TouchableOpacity,
+  ActivityIndicator,
   RefreshControl,
   StyleSheet,
 } from "react-native";
@@ -62,13 +63,19 @@ function buildEntries(
 
 export default function AllLocationsScreen({ navigation }: any) {
   const [entries, setEntries] = useState<ListEntry[]>([]);
+  const [fetching, setFetching] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async (forceNetwork: boolean) => {
     const cache = await getAssignedLocationsCacheFirst();
     let locations = cache.locations;
     if (forceNetwork || cache.stale || locations.length === 0) {
-      locations = await refreshAssignedLocationsInBackground();
+      setFetching(true);
+      try {
+        locations = await refreshAssignedLocationsInBackground();
+      } finally {
+        setFetching(false);
+      }
     }
     const coords = await locationService.getLastKnownCoordinates();
     setEntries(buildEntries(locations, coords));
@@ -147,11 +154,20 @@ export default function AllLocationsScreen({ navigation }: any) {
           />
         )}
         ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Ionicons name="location-outline" size={48} color="#D1D1D6" />
-            <Text style={styles.emptyTitle}>No locations yet</Text>
-            <Text style={styles.emptyText}>Pull down to refresh</Text>
-          </View>
+          fetching ? (
+            <View style={styles.emptyContainer}>
+              <ActivityIndicator size="small" color="#8E8E93" />
+              <Text style={[styles.emptyText, { marginTop: 12 }]}>
+                Loading locations…
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="location-outline" size={48} color="#D1D1D6" />
+              <Text style={styles.emptyTitle}>No locations yet</Text>
+              <Text style={styles.emptyText}>Pull down to refresh</Text>
+            </View>
+          )
         }
       />
     </SafeAreaView>

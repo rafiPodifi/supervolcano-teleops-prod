@@ -46,7 +46,10 @@ import { getFriendlyErrorCopy } from "@/utils/user-facing-error";
 
 const NEARBY_COUNT = 2;
 
-type GpsState = "resolving" | "ready" | "no-coords";
+// "denied" = permission not granted (show Enable CTA). "unavailable" =
+// permission granted but no usable fix/coords yet (show loading copy only —
+// never the Enable CTA).
+type GpsState = "resolving" | "ready" | "denied" | "unavailable";
 
 export default function LocationsScreen({ navigation }: any) {
   const { user, signOut } = useAuth();
@@ -59,6 +62,7 @@ export default function LocationsScreen({ navigation }: any) {
   >([]);
   const [gpsState, setGpsState] = useState<GpsState>("resolving");
   const [loading, setLoading] = useState(true);
+  const [fetching, setFetching] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [userStats, setUserStats] = useState({
     videosRecorded: 12,
@@ -81,8 +85,13 @@ export default function LocationsScreen({ navigation }: any) {
           setLoading(false);
         }
         if (forceNetwork || cache.stale || list.length === 0) {
-          list = await refreshAssignedLocationsInBackground();
-          setLocations(list);
+          setFetching(true);
+          try {
+            list = await refreshAssignedLocationsInBackground();
+            setLocations(list);
+          } finally {
+            setFetching(false);
+          }
         }
         return list;
       } catch (error: any) {
@@ -112,7 +121,7 @@ export default function LocationsScreen({ navigation }: any) {
     const granted = await locationService.hasPermission();
     if (!granted) {
       setNearest([]);
-      setGpsState("no-coords");
+      setGpsState("denied");
       return;
     }
 
@@ -120,19 +129,19 @@ export default function LocationsScreen({ navigation }: any) {
     if (lastKnown) {
       const quick = nearestAssignedLocations(lastKnown, list, NEARBY_COUNT);
       setNearest(quick);
-      setGpsState(quick.length > 0 ? "ready" : "no-coords");
+      setGpsState(quick.length > 0 ? "ready" : "unavailable");
     }
 
     // Precise fix (permission already granted → no prompt)
     const fresh = await locationService.getCurrentCoordinates();
     const coords = fresh ?? lastKnown;
     if (!coords) {
-      setGpsState((prev) => (prev === "ready" ? prev : "no-coords"));
+      setGpsState((prev) => (prev === "ready" ? prev : "unavailable"));
       return;
     }
     const refined = nearestAssignedLocations(coords, list, NEARBY_COUNT);
     setNearest(refined);
-    setGpsState(refined.length > 0 ? "ready" : "no-coords");
+    setGpsState(refined.length > 0 ? "ready" : "unavailable");
   }, []);
 
   // Recompute on every focus (e.g. returning from Camera) — cache + last-known
@@ -163,7 +172,7 @@ export default function LocationsScreen({ navigation }: any) {
     setGpsState("resolving");
     const granted = await locationService.requestPermission();
     if (!granted) {
-      setGpsState("no-coords");
+      setGpsState("denied");
       return;
     }
     await resolveNearby(locations);
@@ -404,28 +413,25 @@ export default function LocationsScreen({ navigation }: any) {
           )}
 
           <TouchableOpacity
-            style={styles.genericCard}
-            activeOpacity={0.85}
+            style={styles.genericPill}
+            activeOpacity={0.7}
             onPress={handleGenericRecordingPress}
           >
-            <View style={styles.genericCardIcon}>
-              <Ionicons name="radio-outline" size={24} color="#0F766E" />
-            </View>
-            <View style={styles.genericCardBody}>
-              <Text style={styles.genericCardTitle}>Generic recording</Text>
-              <Text style={styles.genericCardText}>
-                Record now and assign location and task later from a pending
-                queue.
-              </Text>
-            </View>
+            <Ionicons name="radio-outline" size={16} color="#0F766E" />
+            <Text style={styles.genericPillText}>Generic recording</Text>
             {uploadQueue.needsAssignment > 0 ? (
-              <View style={styles.genericBadge}>
-                <Text style={styles.genericBadgeText}>
+              <View style={styles.genericPillBadge}>
+                <Text style={styles.genericPillBadgeText}>
                   {uploadQueue.needsAssignment}
                 </Text>
               </View>
             ) : (
-              <Ionicons name="chevron-forward" size={18} color="#0F766E" />
+              <Ionicons
+                name="chevron-forward"
+                size={14}
+                color="#8E8E93"
+                style={{ marginLeft: 4 }}
+              />
             )}
           </TouchableOpacity>
 
@@ -556,17 +562,12 @@ export default function LocationsScreen({ navigation }: any) {
           />
         ))}
 
-        {/* GPS placeholder — permission missing, no fix, or no coords on docs */}
+        {/* GPS placeholder. Enable CTA only when permission is actually
+            missing — with permission granted (resolving / no usable fix yet)
+            show loading copy instead. */}
         {showPlaceholder && (
           <View style={styles.placeholderWrap}>
-            {gpsState === "resolving" ? (
-              <View style={styles.placeholderCard}>
-                <ActivityIndicator size="small" color="#8E8E93" />
-                <Text style={styles.placeholderText}>
-                  Finding locations near you…
-                </Text>
-              </View>
-            ) : (
+            {gpsState === "denied" ? (
               <View style={styles.placeholderCard}>
                 <View style={styles.placeholderIcon}>
                   <Ionicons name="navigate-outline" size={22} color="#3B82F6" />
@@ -587,18 +588,32 @@ export default function LocationsScreen({ navigation }: any) {
                   </Text>
                 </TouchableOpacity>
               </View>
+            ) : (
+              <View style={styles.placeholderCard}>
+                <ActivityIndicator size="small" color="#8E8E93" />
+                <Text style={styles.placeholderText}>Loading locations…</Text>
+              </View>
             )}
           </View>
         )}
 
-        {/* Empty state */}
-        {locations.length === 0 && (
-          <View style={styles.emptyContainer}>
-            <Ionicons name="location-outline" size={48} color="#D1D1D6" />
-            <Text style={styles.emptyTitle}>No locations yet</Text>
-            <Text style={styles.emptyText}>Pull down to refresh</Text>
-          </View>
-        )}
+        {/* Empty state — spinner while a fetch is in flight, static copy only
+            when we genuinely have nothing after fetching */}
+        {locations.length === 0 &&
+          (fetching ? (
+            <View style={styles.emptyContainer}>
+              <ActivityIndicator size="small" color="#8E8E93" />
+              <Text style={[styles.emptyText, { marginTop: 12 }]}>
+                Loading locations…
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="location-outline" size={48} color="#D1D1D6" />
+              <Text style={styles.emptyTitle}>No locations yet</Text>
+              <Text style={styles.emptyText}>Pull down to refresh</Text>
+            </View>
+          ))}
       </ScrollView>
 
       {/* Pinned "Other Locations" CTA — always visible, outside the scroll */}
@@ -702,51 +717,34 @@ const styles = StyleSheet.create({
   uploadStatusTextWarning: {
     color: "#FF9500",
   },
-  genericCard: {
+  genericPill: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F0FDFA",
-    borderRadius: 18,
-    padding: 16,
+    backgroundColor: "#F2F2F7",
+    alignSelf: "flex-start",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
     marginBottom: 20,
-    borderWidth: 1,
-    borderColor: "#CCFBF1",
   },
-  genericCardIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12,
-  },
-  genericCardBody: {
-    flex: 1,
-    marginRight: 12,
-  },
-  genericCardTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#134E4A",
-  },
-  genericCardText: {
-    marginTop: 4,
+  genericPillText: {
     fontSize: 13,
-    lineHeight: 19,
+    fontWeight: "500",
     color: "#0F766E",
+    marginLeft: 6,
   },
-  genericBadge: {
-    minWidth: 28,
-    height: 28,
-    borderRadius: 14,
+  genericPillBadge: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
     backgroundColor: "#0F766E",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 8,
+    paddingHorizontal: 5,
+    marginLeft: 6,
   },
-  genericBadgeText: {
-    fontSize: 12,
+  genericPillBadgeText: {
+    fontSize: 11,
     fontWeight: "700",
     color: "#FFFFFF",
   },
