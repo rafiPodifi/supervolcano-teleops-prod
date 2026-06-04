@@ -177,7 +177,6 @@ export default function AddressAutocomplete({
             onPlaceChanged={onPlaceChanged}
             options={{
               types: ["address"],
-              componentRestrictions: { country: "us" },
             }}
           >
             <input
