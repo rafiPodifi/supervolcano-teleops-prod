@@ -95,6 +95,19 @@ class LocationService {
   }
 
   /**
+   * Passive permission check — never prompts.
+   */
+  async hasPermission(): Promise<boolean> {
+    try {
+      const { status } = await Location.getForegroundPermissionsAsync();
+      return status === "granted";
+    } catch (error) {
+      console.warn("[Location] Permission check error:", error);
+      return false;
+    }
+  }
+
+  /**
    * Last-known coordinates — returns instantly from the OS cache (no fresh GPS
    * fix). May be null/stale, but lets the camera bind a nearest location
    * immediately while a precise fix resolves in the background. Does not prompt
@@ -219,6 +232,43 @@ export function haversineMeters(
  * MATCH_RADIUS_M is currently Infinity (nearest-always); once a radius is set,
  * filter out matches beyond it here.
  */
+/**
+ * The `count` assigned locations closest to the given coordinates, sorted
+ * nearest-first. Locations without numeric coordinates are skipped. Returns
+ * [] when none have coordinates.
+ */
+export function nearestAssignedLocations(
+  coords: { latitude: number; longitude: number },
+  locations: AssignedLocation[],
+  count = 2,
+): { location: AssignedLocation; distanceM: number }[] {
+  return locations
+    .filter(
+      (location) =>
+        typeof location.latitude === "number" &&
+        typeof location.longitude === "number",
+    )
+    .map((location) => ({
+      location,
+      distanceM: haversineMeters(coords, {
+        latitude: location.latitude as number,
+        longitude: location.longitude as number,
+      }),
+    }))
+    .sort((a, b) => a.distanceM - b.distanceM)
+    .slice(0, count);
+}
+
+/**
+ * Human-readable distance label: "450 m away" / "2.4 km away".
+ */
+export function formatDistance(distanceM: number): string {
+  if (distanceM < 1000) {
+    return `${Math.round(distanceM)} m away`;
+  }
+  return `${(distanceM / 1000).toFixed(1)} km away`;
+}
+
 export function findNearestAssignedLocation(
   coords: { latitude: number; longitude: number },
   locations: AssignedLocation[],

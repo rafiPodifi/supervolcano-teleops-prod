@@ -7,6 +7,7 @@
 import React from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import LocationsScreen from "../screens/LocationsScreen";
+import AllLocationsScreen from "../screens/AllLocationsScreen";
 import JobSelectScreen from "../screens/JobSelectScreen";
 import CameraScreen from "../screens/CameraScreen";
 import GenericRecordingHubScreen from "../screens/GenericRecordingHubScreen";
@@ -19,13 +20,14 @@ const Stack = createNativeStackNavigator();
 export default function CleanerNavigator() {
   return (
     <Stack.Navigator
-      initialRouteName="Camera"
+      initialRouteName="Locations"
       screenOptions={{
         headerShown: false,
         animation: "slide_from_right",
       }}
     >
       <Stack.Screen name="Locations" component={LocationsScreen} />
+      <Stack.Screen name="AllLocations" component={AllLocationsScreen} />
       <Stack.Screen
         name="GenericRecordingHub"
         component={GenericRecordingHubScreen}
